@@ -1,0 +1,54 @@
+package com.ontology.platform.rules;
+
+import com.ontology.platform.rule.service.DroolsEngineService.IndicatorFact;
+import com.ontology.platform.rule.service.DroolsEngineService.ViolationResult;
+
+global java.util.List violations;
+
+rule "Radar Detection Range Check"
+    when
+        $fact : IndicatorFact(indicatorName == "Radar_Detection_Range", value != null)
+    then
+        double val = ((Number) $fact.value()).doubleValue();
+        if (val < 100 || val > 500) {
+            ViolationResult vr = new ViolationResult(
+                "Radar Detection Range Check",
+                $fact.indicatorName(),
+                "探测距离超出允许范围 [" + val + "]",
+                100, 500, val
+            );
+            violations.add(vr);
+        }
+end
+
+rule "Warning Response Time Check"
+    when
+        $fact : IndicatorFact(indicatorName == "Warning_Response_Time", value != null)
+    then
+        double val = ((Number) $fact.value()).doubleValue();
+        if (val > 30) {
+            ViolationResult vr = new ViolationResult(
+                "Warning Response Time Check",
+                $fact.indicatorName(),
+                "预警响应时间过长 [" + val + "秒]，超过阈值30秒",
+                0, 30, val
+            );
+            violations.add(vr);
+        }
+end
+
+rule "Fire Control Accuracy Check"
+    when
+        $fact : IndicatorFact(indicatorName == "Fire_Control_Accuracy", value != null)
+    then
+        double val = ((Number) $fact.value()).doubleValue();
+        if (val < 0.85) {
+            ViolationResult vr = new ViolationResult(
+                "Fire Control Accuracy Check",
+                $fact.indicatorName(),
+                "火控精度不足 [" + val + "]，低于要求0.85",
+                0.85, 1.0, val
+            );
+            violations.add(vr);
+        }
+end

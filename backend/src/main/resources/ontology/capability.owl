@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#"
+         xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+         xmlns:cap="http://www.ontology.org/capability#"
+         xml:base="http://www.ontology.org/capability">
+
+    <owl:Ontology rdf:about="http://www.ontology.org/capability">
+        <rdfs:label>装备能力指标本体</rdfs:label>
+        <rdfs:comment>装备能力指标体系本体库 - 水面作战域</rdfs:comment>
+    </owl:Ontology>
+
+    <!-- ===== 作战域 (Domains) ===== -->
+    <owl:Class rdf:about="http://www.ontology.org/capability#SurfaceWarfare">
+        <rdfs:label>水面作战域</rdfs:label>
+    </owl:Class>
+
+    <!-- ===== 装备类别 (Categories) ===== -->
+    <owl:Class rdf:about="http://www.ontology.org/capability#Ship">
+        <rdfs:label>舰艇</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://www.ontology.org/capability#SurfaceWarfare"/>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://www.ontology.org/capability#Radar">
+        <rdfs:label>雷达</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://www.ontology.org/capability#SurfaceWarfare"/>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://www.ontology.org/capability#WeaponSystem">
+        <rdfs:label>武器系统</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://www.ontology.org/capability#SurfaceWarfare"/>
+    </owl:Class>
+
+    <!-- ===== 舰艇子类 ===== -->
+    <owl:Class rdf:about="http://www.ontology.org/capability#Destroyer">
+        <rdfs:label>驱逐舰</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://www.ontology.org/capability#Ship"/>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://www.ontology.org/capability#Frigate">
+        <rdfs:label>护卫舰</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://www.ontology.org/capability#Ship"/>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://www.ontology.org/capability#AircraftCarrier">
+        <rdfs:label>航母</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://www.ontology.org/capability#Ship"/>
+    </owl:Class>
+
+    <!-- ===== 能力指标 (Capability Indicators) ===== -->
+    <owl:Class rdf:about="http://www.ontology.org/capability#RadarDetectionRange">
+        <rdfs:label>雷达探测距离</rdfs:label>
+        <cap:domain>水面作战域</cap:domain>
+        <cap:category>雷达</cap:category>
+        <cap:unit>千米</cap:unit>
+        <cap:description>雷达对目标的探测距离</cap:description>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://www.ontology.org/capability#WarningResponseTime">
+        <rdfs:label>预警响应时间</rdfs:label>
+        <cap:domain>水面作战域</cap:domain>
+        <cap:category>雷达</cap:category>
+        <cap:unit>秒</cap:unit>
+        <cap:description>从探测到发出预警的响应时间</cap:description>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://www.ontology.org/capability#FireControlAccuracy">
+        <rdfs:label>火控精度</rdfs:label>
+        <cap:domain>水面作战域</cap:domain>
+        <cap:category>武器系统</cap:category>
+        <cap:unit>概率</cap:unit>
+        <cap:description>火控系统的命中精度</cap:description>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://www.ontology.org/capability#InterceptionSuccessRate">
+        <rdfs:label>拦截成功率</rdfs:label>
+        <cap:domain>水面作战域</cap:domain>
+        <cap:category>武器系统</cap:category>
+        <cap:unit>百分比</cap:unit>
+        <cap:description>拦截来袭目标的成功率</cap:description>
+    </owl:Class>
+
+    <!-- ===== 关系属性 (Object Properties) ===== -->
+    <owl:ObjectProperty rdf:about="http://www.ontology.org/capability#directlyAffects">
+        <rdfs:label>直接影响</rdfs:label>
+    </owl:ObjectProperty>
+
+    <owl:ObjectProperty rdf:about="http://www.ontology.org/capability#indirectlyAffects">
+        <rdfs:label>间接影响</rdfs:label>
+    </owl:ObjectProperty>
+
+    <owl:ObjectProperty rdf:about="http://www.ontology.org/capability#constrainedBy">
+        <rdfs:label>阈值约束</rdfs:label>
+    </owl:ObjectProperty>
+
+</rdf:RDF>

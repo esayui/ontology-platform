@@ -1,0 +1,39 @@
+{
+  "name": "ontology-platform-frontend",
+  "version": "1.0.0",
+  "description": "装备能力指标本体库与规则引擎一体化平台",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ant-design/icons-vue": "^7.0.1",
+    "@stomp/stompjs": "^7.0.0",
+    "@types/d3": "^7.4.3",
+    "ant-design-vue": "^4.1.2",
+    "axios": "^1.6.8",
+    "cytoscape": "^3.28.1",
+    "cytoscape-cose-bilkent": "^4.1.0",
+    "cytoscape-dagre": "^2.5.0",
+    "d3": "^7.9.0",
+    "echarts": "^5.5.0",
+    "monaco-editor": "^0.44.0",
+    "pinia": "^2.1.7",
+    "pinia-plugin-persistedstate": "^3.2.1",
+    "sockjs-client": "^1.6.1",
+    "vue": "^3.4.27",
+    "vue-router": "^4.3.2"
+  },
+  "devDependencies": {
+    "@types/cytoscape": "^3.21.4",
+    "@types/node": "^20.12.7",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "less": "^4.2.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.2.11",
+    "vite-plugin-monaco-editor": "^1.1.0",
+    "vue-tsc": "^2.0.19"
+  }
+}
