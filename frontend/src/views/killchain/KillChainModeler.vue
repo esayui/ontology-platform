@@ -27,7 +27,15 @@
             draggable="true"
             @dragstart="onDragStart($event, nt)"
           >
-            <span class="palette-dot" :style="{background:nt.color, borderRadius: nt.shape.includes('round')||nt.shape==='ellipse'?'50%':'2px'}"></span>
+            <svg width="20" height="20" viewBox="-10 -10 20 20" class="palette-icon">
+              <polygon v-if="nt.shape==='round-rectangle'" points="-7,-5 7,-5 7,5 -7,5" :fill="nt.color" rx="2" />
+              <polygon v-else-if="nt.shape==='diamond'" points="0,-7 7,0 0,7 -7,0" :fill="nt.color" />
+              <rect v-else-if="nt.shape==='rectangle'" x="-7" y="-5" width="14" height="10" :fill="nt.color" />
+              <circle v-else-if="nt.shape==='ellipse'" cx="0" cy="0" r="7" :fill="nt.color" />
+              <polygon v-else-if="nt.shape==='triangle'" points="0,-8 8,6 -8,6" :fill="nt.color" />
+              <polygon v-else-if="nt.shape==='hexagon'" points="0,-7 6,-3.5 6,3.5 0,7 -6,3.5 -6,-3.5" :fill="nt.color" />
+              <polygon v-else-if="nt.shape==='star'" points="0,-8 2,-3 7,-3 3,1 5,7 0,4 -5,7 -3,1 -7,-3 -2,-3" :fill="nt.color" />
+            </svg>
             {{ nt.label }}
           </div>
         </div>
@@ -81,6 +89,7 @@
                   <a-select-option v-for="nt in NODE_TYPES" :key="nt.value" :value="nt.value">{{ nt.label }}</a-select-option>
                 </a-select>
               </a-form-item>
+              <a-divider style="margin: 8px 0" />
               <a-form-item label="平台/装备">
                 <a-select
                   :value="undefined"
@@ -143,6 +152,9 @@
                     @close="removeCapabilityTag(cid)">{{ capabilityTagName(cid) }}</a-tag>
                 </div>
               </a-form-item>
+              <a-form-item v-if="selectedPlatforms.length > 0 && selectedCapabilities.length > 0" label="能力矩阵">
+                <a-button size="small" @click="openMatrix">能力矩阵设置</a-button>
+              </a-form-item>
               <a-button type="primary" size="small" @click="applyNodeProps">应用</a-button>
             </a-form>
           </div>
@@ -171,11 +183,52 @@
         </a-card>
       </a-col>
     </a-row>
+
+    <!-- Capability Matrix Modal -->
+    <a-modal v-model:open="showMatrixModal" title="能力矩阵设置" width="1000px" :body-style="{ padding: '12px' }" :footer="null" @cancel="cancelMatrix">
+      <div v-if="matrixPlatforms.length > 0 && matrixCapabilities.length > 0" class="matrix-scroll" style="max-width:90vw">
+        <table class="matrix-table">
+          <thead>
+            <tr>
+              <th class="matrix-corner"></th>
+              <th v-for="cap in matrixCapabilities" :key="cap.id" class="matrix-col-header">
+                <div class="col-label">{{ cap.name }}</div>
+              </th>
+              <th v-for="i in padCols" :key="'pc-'+i" class="matrix-col-header pad-col" />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="plat in matrixPlatforms" :key="plat.id">
+              <td class="matrix-row-header">{{ plat.name }}</td>
+              <td v-for="cap in matrixCapabilities" :key="cap.id"
+                class="matrix-cell"
+                :class="{ checked: isMatrixChecked(plat.id, cap.id) }"
+                @click="toggleMatrixCell(plat.id, cap.id)"
+              >
+                <CheckOutlined v-if="isMatrixChecked(plat.id, cap.id)" style="color:#1890ff;font-size:18px" />
+              </td>
+              <td v-for="i in padCols" :key="'pc-'+plat.id+'-'+i" class="matrix-cell pad-cell" />
+            </tr>
+            <tr v-for="i in padRows" :key="'pr-'+i">
+              <td class="matrix-row-header pad-row" />
+              <td v-for="j in (matrixCapabilities.length + padCols)" :key="'prc-'+i+'-'+j" class="matrix-cell pad-cell" />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <a-empty v-else description="请先关联平台和能力指标" />
+      <div style="text-align:right;margin-top:16px">
+        <a-space>
+          <a-button @click="cancelMatrix">取消</a-button>
+          <a-button type="primary" @click="saveMatrix">保存</a-button>
+        </a-space>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { CloseCircleFilled, CheckOutlined } from '@ant-design/icons-vue'
@@ -273,7 +326,77 @@ function onCapDropdownChange(open: boolean) {
 
 function removeCapabilityTag(id: string) {
   selectedCapabilities.value = selectedCapabilities.value.filter(c => c !== id)
+  cleanMatrixForCap(id)
   markDirty()
+}
+
+// ---- Capability Matrix ----
+const showMatrixModal = ref(false)
+const matrixData = ref<Record<string, string[]>>({})  // { platformId: [capId, ...] }
+const matrixPlatforms = ref<any[]>([])
+const matrixCapabilities = ref<any[]>([])
+
+function openMatrix() {
+  showMatrixModal.value = true
+  // Initialize from stored matrix
+  matrixData.value = {}
+  try {
+    const stored = selectedNode.value?.capabilityMatrix
+    if (stored) matrixData.value = typeof stored === 'string' ? JSON.parse(stored) : { ...stored }
+  } catch { matrixData.value = {} }
+  // Build platform list from selectedPlatforms
+  matrixPlatforms.value = selectedPlatforms.value
+    .map(id => allIndicators.value.find((i: any) => i.id === id)).filter(Boolean)
+  // Build capability list from selectedCapabilities
+  matrixCapabilities.value = selectedCapabilities.value
+    .map(id => allCapabilities.value.find((i: any) => i.id === id)).filter(Boolean)
+  // Clean stale entries (platforms/capabilities that no longer exist in the node)
+  cleanMatrixStaleEntries()
+}
+
+function isMatrixChecked(platId: string, capId: string): boolean {
+  return (matrixData.value[platId] || []).includes(capId)
+}
+
+function toggleMatrixCell(platId: string, capId: string) {
+  if (!matrixData.value[platId]) matrixData.value[platId] = []
+  const idx = matrixData.value[platId].indexOf(capId)
+  if (idx >= 0) matrixData.value[platId].splice(idx, 1)
+  else matrixData.value[platId].push(capId)
+}
+
+function cleanMatrixStaleEntries() {
+  const validPlats = new Set(selectedPlatforms.value)
+  const validCaps = new Set(selectedCapabilities.value)
+  // Remove platforms not in current selection
+  for (const key of Object.keys(matrixData.value)) {
+    if (!validPlats.has(key)) delete matrixData.value[key]
+    else {
+      matrixData.value[key] = matrixData.value[key].filter(c => validCaps.has(c))
+    }
+  }
+}
+
+function cleanMatrixForCap(capId: string) {
+  for (const platId of Object.keys(matrixData.value)) {
+    matrixData.value[platId] = matrixData.value[platId].filter(c => c !== capId)
+  }
+}
+
+function saveMatrix() {
+  selectedNode.value.capabilityMatrix = JSON.stringify(matrixData.value)
+  if (cy && selectedNode.value) {
+    cy.getElementById(selectedNode.value.id).data('capabilityMatrix', JSON.stringify(matrixData.value))
+  }
+  showMatrixModal.value = false
+  markDirty()
+}
+
+const padRows = computed(() => Math.max(0, 5 - matrixPlatforms.value.length))
+const padCols = computed(() => Math.max(0, 15 - matrixCapabilities.value.length))
+
+function cancelMatrix() {
+  showMatrixModal.value = false
 }
 async function searchIndicators(keyword: string) {
   try {
@@ -316,6 +439,13 @@ function onPlatformDropdownChange(open: boolean) {
 
 function removePlatformTag(id: string) {
   selectedPlatforms.value = selectedPlatforms.value.filter(p => p !== id)
+  if (selectedNode.value?.capabilityMatrix) {
+    try {
+      const m = typeof selectedNode.value.capabilityMatrix === 'string' ? JSON.parse(selectedNode.value.capabilityMatrix) : { ...selectedNode.value.capabilityMatrix }
+      delete m[id]
+      selectedNode.value.capabilityMatrix = JSON.stringify(m)
+    } catch { /* ignore */ }
+  }
   markDirty()
 }
 function getIndicatorName(id: string): string {
@@ -366,10 +496,11 @@ function initCytoscape() {
       { selector: 'node[type="reconnaissance"]', style: { 'background-color': '#1890ff', shape: 'round-rectangle' } },
       { selector: 'node[type="detection"]', style: { 'background-color': '#faad14', shape: 'diamond' } },
       { selector: 'node[type="command"]', style: { 'background-color': '#722ed1', shape: 'rectangle' } },
-      { selector: 'node[type="control"]', style: { 'background-color': '#eb2f96', shape: 'round-diamond' } },
-      { selector: 'node[type="communication"]', style: { 'background-color': '#13c2c2', shape: 'parallelogram' } },
+      { selector: 'node[type="control"]', style: { 'background-color': '#eb2f96', shape: 'diamond' } },
+      { selector: 'node[type="communication"]', style: { 'background-color': '#13c2c2', shape: 'ellipse' } },
       { selector: 'node[type="strike"]', style: { 'background-color': '#f5222d', shape: 'triangle' } },
       { selector: 'node[type="assessment"]', style: { 'background-color': '#52c41a', shape: 'hexagon' } },
+      { selector: 'node[type="target"]', style: { 'background-color': '#fa541c', shape: 'star' } },
       { selector: 'node:selected', style: { 'border-color': '#1890ff', 'border-width': 3 } },
       { selector: '.edge-creating', style: { 'line-color': '#ff4d4f', width: 2.5, 'line-style': 'dashed', 'target-arrow-color': '#ff4d4f', 'target-arrow-shape': 'triangle' } },
       { selector: 'edge', style: { width: 2, 'line-color': '#999', 'target-arrow-color': '#999', 'target-arrow-shape': 'triangle', 'curve-style': 'unbundled-bezier', label: 'data(label)', 'font-size': '10px', 'edge-text-rotation': 'autorotate', 'text-background-opacity': 0.85, 'text-background-color': '#fff', 'text-margin-y': -6 } },
@@ -377,6 +508,8 @@ function initCytoscape() {
       { selector: 'edge[type="command"]', style: { 'line-color': '#722ed1', 'target-arrow-color': '#722ed1' } },
       { selector: 'edge[type="support"]', style: { 'line-color': '#52c41a', 'target-arrow-color': '#52c41a', 'line-style': 'dashed' } },
       { selector: 'edge[type="feedback"]', style: { 'line-color': '#faad14', 'target-arrow-color': '#faad14', 'line-style': 'dotted' } },
+      { selector: 'edge[type="detection"]', style: { 'line-color': '#faad14', 'target-arrow-color': '#faad14', width: 2.5 } },
+      { selector: 'edge[type="strike"]', style: { 'line-color': '#f5222d', 'target-arrow-color': '#f5222d', width: 3 } },
       { selector: '.validation-error', style: { 'border-color': '#f5222d', 'border-width': 4 } },
     ],
     layout: { name: 'cose', idealEdgeLength: 200, nodeOverlap: 30, nodeRepulsion: 10000, gravity: 0.3, padding: 50 },
@@ -392,7 +525,8 @@ function initCytoscape() {
     selectedEdge.value = null
     const plat = n.data('platform') || ''
     const caps = n.data('capabilities') || ''
-    selectedNode.value = { id: n.id(), label: n.data('label'), type: n.data('type'), platform: plat, capabilities: caps }
+    const matrix = n.data('capabilityMatrix') || ''
+    selectedNode.value = { id: n.id(), label: n.data('label'), type: n.data('type'), platform: plat, capabilities: caps, capabilityMatrix: matrix }
     selectedPlatforms.value = plat ? plat.split(',').filter(Boolean) : []
     selectedCapabilities.value = caps ? caps.split(',').filter(Boolean) : []
     searchIndicators('')
@@ -479,7 +613,7 @@ function cancelEdgeCreation() {
 function loadModel(model: any) {
   if (!cy) return
   const nodes = (model.nodes || []).map((n: any) => ({
-    data: { id: n.id, label: n.label || n.id, type: n.type, platform: n.platform || '', capabilities: n.capabilities || '' },
+    data: { id: n.id, label: n.label || n.id, type: n.type, platform: n.platform || '', capabilities: n.capabilities || '', capabilityMatrix: n.capabilityMatrix || '' },
     position: n.position || { x: Math.random() * 400, y: Math.random() * 300 },
   }))
   const edges = (model.edges || []).map((e: any) => ({
@@ -510,7 +644,7 @@ async function autoSave() {
   if (!cy) return
   saveStatus.value = 'saving'
   try {
-    const nodes = cy.nodes().map(n => ({ id: n.id(), label: n.data('label'), type: n.data('type'), platform: n.data('platform'), capabilities: n.data('capabilities') || '', position: n.position() }))
+    const nodes = cy.nodes().map(n => ({ id: n.id(), label: n.data('label'), type: n.data('type'), platform: n.data('platform'), capabilities: n.data('capabilities') || '', capabilityMatrix: n.data('capabilityMatrix') || '', position: n.position() }))
     const edges = cy.edges().map(e => ({ id: e.id(), source: e.data('source'), target: e.data('target'), label: e.data('label'), type: e.data('type') }))
     await killChainApi.saveModel(taskId, { modelData: JSON.stringify({ nodes, edges, metadata: { name: taskName.value, version: '1.0', updatedAt: new Date().toISOString() } }), name: taskName.value })
     saveStatus.value = 'saved'; dirty.value = false
@@ -526,6 +660,7 @@ function applyNodeProps() {
     type: selectedNode.value.type,
     platform: platforms,
     capabilities: caps,
+    capabilityMatrix: selectedNode.value.capabilityMatrix || '',
   })
   selectedNode.value.platform = platforms
   selectedNode.value.capabilities = caps
@@ -578,7 +713,7 @@ onUnmounted(() => { clearTimeout(saveTimer); window.removeEventListener('keydown
 .palette-title { font-weight:600; margin-bottom:8px; font-size:13px; color:#333; }
 .palette-item { display:flex; align-items:center; gap:6px; padding:6px 8px; margin-bottom:4px; border:1px solid #e8e8e8; border-radius:4px; cursor:grab; font-size:12px; transition:background .2s; }
 .palette-item:hover { background:#f0f5ff; }
-.palette-dot { width:16px; height:16px; display:inline-block; border:1px solid rgba(0,0,0,.1); flex-shrink:0; }
+.palette-icon { flex-shrink: 0; }
 .prop-card { height:fit-content; }
 
 .edge-creation-panel {
@@ -592,6 +727,20 @@ onUnmounted(() => { clearTimeout(saveTimer); window.removeEventListener('keydown
 .ecp-cancel { border-left-color: #ccc !important; color: #999; }
 .platform-select :deep(.ant-select-selection-item) { background: #e6f7ff; border-color: #91d5ff; border-radius: 4px; }
 .platform-select :deep(.ant-select-selection-item-content) { font-weight: 500; }
+.matrix-scroll { height: 700px; overflow-y: scroll; overflow-x: scroll; }
+.matrix-table { border-collapse: collapse; }
+.matrix-table th, .matrix-table td { border: 1px solid #e8e8e8; }
+.matrix-corner { width: 100px; min-width: 100px; background: #fafafa; position: sticky; left: 0; top: 0; z-index: 3; }
+.matrix-col-header { width: 44px; min-width: 44px; height: 120px; padding: 4px; background: #f0f5ff; vertical-align: bottom; text-align: center; position: sticky; top: 0; z-index: 2; }
+.col-label { writing-mode: vertical-rl; font-size: 12px; white-space: nowrap; line-height: 1.2; max-height: 110px; padding: 0 10px; }
+.matrix-row-header { padding: 4px 8px; font-size: 12px; background: #fafafa; text-align: left; white-space: nowrap; position: sticky; left: 0; z-index: 1; }
+.matrix-col-header { text-align: center !important; }
+.matrix-cell { width: 44px; height: 44px; text-align: center; cursor: pointer; transition: background .15s; }
+.matrix-cell:hover { background: #f0f5ff; }
+.matrix-cell.checked { background: #e6f7ff; }
+.pad-cell { background: #d9d9d9; cursor: default; pointer-events: none; }
+.pad-col { background: #d9d9d9; }
+.pad-row { background: #d9d9d9; color: transparent; }
 </style>
 
 <style>
