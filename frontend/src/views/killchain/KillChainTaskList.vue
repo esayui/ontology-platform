@@ -22,6 +22,7 @@
           <template v-if="column.key === 'action'">
             <a-space>
               <a-button size="small" type="primary" @click="enterModeler(record.id)">进入建模</a-button>
+              <a-button size="small" @click="router.push('/killchain/analysis/' + record.id)">匹配性分析</a-button>
               <a-button size="small" @click="editTask(record)">编辑</a-button>
               <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                 <a-button size="small" danger>删除</a-button>

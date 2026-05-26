@@ -61,6 +61,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/killchain/KillChainModeler.vue'),
         meta: { title: '建模画布' },
       },
+      {
+        path: 'killchain/analysis/:id',
+        name: 'KillChainAnalysis',
+        component: () => import('@/views/killchain/KillChainAnalysis.vue'),
+        meta: { title: '匹配性分析' },
+      },
     ],
   },
 ]
