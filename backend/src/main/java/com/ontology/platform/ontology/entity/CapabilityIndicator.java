@@ -30,6 +30,8 @@ public class CapabilityIndicator extends BaseEntity {
 
     private String entityType;  // INDICATOR or PLATFORM
 
+    private String properties;  // JSON for platform specs / extra attributes
+
     private Double thresholdMin;
 
     private Double thresholdMax;

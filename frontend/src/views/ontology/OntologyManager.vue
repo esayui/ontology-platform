@@ -111,6 +111,11 @@
                   </a-form-item>
                 </a-col>
                 <a-col :span="12">
+                  <a-form-item label="性能参数JSON" v-if="entityTypeFilter === 'PLATFORM'">
+                    <a-textarea v-model:value="editForm.properties" :rows="4" placeholder='{"排水量":"12000吨","航速":"30节"}' />
+                  </a-form-item>
+                </a-col>
+                <a-col :span="12">
                   <a-form-item label="描述">
                     <a-textarea v-model:value="editForm.description" :rows="2" />
                   </a-form-item>
@@ -123,6 +128,14 @@
                 <a-button size="small" @click="resetForm">重置</a-button>
               </a-space>
             </a-form>
+
+            <!-- Platform performance specs -->
+            <a-divider v-if="platformProps && Object.keys(platformProps).length > 0" style="margin: 12px 0">性能参数</a-divider>
+            <a-descriptions v-if="platformProps && Object.keys(platformProps).length > 0" :column="3" bordered size="small">
+              <a-descriptions-item v-for="(val, key) in platformProps" :key="key" :label="key">
+                {{ val }}
+              </a-descriptions-item>
+            </a-descriptions>
 
             <a-divider style="margin: 12px 0">关联关系</a-divider>
             <a-space style="margin-bottom: 8px">
@@ -302,7 +315,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
 import axios from 'axios'
 import { GlobalOutlined, FolderOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
@@ -565,14 +578,18 @@ async function ctxDelete() {
 // ---- Indicator detail & editing ----
 const selectedIndicator = ref<any>(null)
 const saving = ref(false)
+const platformProps = computed(() => {
+  try { return selectedIndicator.value?.properties ? JSON.parse(selectedIndicator.value.properties) : null }
+  catch { return null }
+})
 
 interface EditForm {
   name: string; iri: string; unit: string; domain: string; category: string
-  dataType: string; thresholdMin: number; thresholdMax: number; description: string
+  dataType: string; properties: string; thresholdMin: number; thresholdMax: number; description: string
 }
 const editForm = ref<EditForm>({
   name: '', iri: '', unit: '', domain: '', category: '',
-  dataType: '', thresholdMin: 0, thresholdMax: 0, description: '',
+  dataType: '', properties: '', thresholdMin: 0, thresholdMax: 0, description: '',
 })
 
 function onTreeSelect(keys: (string | number)[], info: any) {
@@ -583,8 +600,9 @@ function onTreeSelect(keys: (string | number)[], info: any) {
     editForm.value = {
       name: ind.name, iri: ind.iri, unit: ind.unit || '',
       domain: ind.domain, category: ind.category,
-      dataType: ind.dataType || '', thresholdMin: ind.thresholdMin ?? 0,
-      thresholdMax: ind.thresholdMax ?? 0, description: ind.description || '',
+      dataType: ind.dataType || '', properties: ind.properties || '',
+      thresholdMin: ind.thresholdMin ?? 0, thresholdMax: ind.thresholdMax ?? 0,
+      description: ind.description || '',
     }
     loadRelationships(ind.id)
   }
@@ -596,8 +614,9 @@ function resetForm() {
     editForm.value = {
       name: ind.name, iri: ind.iri, unit: ind.unit || '',
       domain: ind.domain, category: ind.category,
-      dataType: ind.dataType || '', thresholdMin: ind.thresholdMin ?? 0,
-      thresholdMax: ind.thresholdMax ?? 0, description: ind.description || '',
+      dataType: ind.dataType || '', properties: ind.properties || '',
+      thresholdMin: ind.thresholdMin ?? 0, thresholdMax: ind.thresholdMax ?? 0,
+      description: ind.description || '',
     }
   }
 }

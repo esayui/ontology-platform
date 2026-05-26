@@ -83,28 +83,64 @@
               </a-form-item>
               <a-form-item label="平台/装备">
                 <a-select
-                  v-model:value="selectedPlatforms"
-                  mode="multiple"
-                  placeholder="搜索并选择装备指标..."
+                  :value="undefined"
+                  placeholder="搜索并添加装备..."
                   :filter-option="false"
                   show-search
+                  :open="platformDropdownOpen"
+                  class="platform-select"
                   style="width:100%"
                   @search="searchIndicators"
-                  @change="markDirty"
+                  @dropdownVisibleChange="onPlatformDropdownChange"
                 >
-                  <a-select-option v-for="ind in indicatorOptions" :key="ind.id" :value="ind.id" :label="ind.name">
+                  <template #option="{ value, label }">
+                    <span
+                      style="display:flex;align-items:center;justify-content:space-between"
+                      @mousedown.prevent="onPlatformOptionClick(); togglePlatform(value as string)"
+                    >
+                      <span>{{ label || value }}</span>
+                      <CheckOutlined v-if="selectedPlatforms.includes(value as string)" style="color:#1890ff;font-size:12px" />
+                    </span>
+                  </template>
+                  <a-select-option v-for="ind in indicatorOptions" :key="ind.id" :value="ind.id" :label="ind.name + ' (' + ind.category + ')'">
                     {{ ind.name }} <span style="color:#999;font-size:11px">{{ ind.category }}</span>
                   </a-select-option>
                 </a-select>
-                <div v-if="selectedPlatforms.length > 0" style="margin-top:4px">
+                <div v-if="selectedPlatforms.length > 0" style="margin-top:6px">
                   <a-tag
                     v-for="pid in selectedPlatforms" :key="pid"
-                    closable size="small"
-                    style="margin:1px"
-                    @close="removePlatform(pid)"
+                    closable size="small" color="blue"
+                    style="margin:2px"
+                    @close="removePlatformTag(pid)"
                   >
-                    {{ getIndicatorName(pid) }}
+                    {{ platformTagName(pid) }}
                   </a-tag>
+                </div>
+              </a-form-item>
+              <a-form-item label="能力指标">
+                <a-tree-select
+                  v-model:value="capSelectVal"
+                  :tree-data="capabilityTreeData"
+                  show-search
+                  :open="capDropdownOpen"
+                  placeholder="搜索并添加能力指标..."
+                  :filter-tree-node="filterCapabilityNode"
+                  :dropdown-match-select-width="false"
+                  dropdown-class-name="cap-tree-dropdown"
+                  style="width:100%"
+                  @select="onCapSelect"
+                  @dropdownVisibleChange="onCapDropdownChange"
+                >
+                  <template #title="{ value, title }">
+                    <span style="display:inline-flex;align-items:center;gap:4px">
+                      <CheckOutlined v-if="selectedCapabilities.includes(value as string)" style="color:#1890ff;font-size:11px" />
+                      <span>{{ title }}</span>
+                    </span>
+                  </template>
+                </a-tree-select>
+                <div v-if="selectedCapabilities.length > 0" style="margin-top:6px">
+                  <a-tag v-for="cid in selectedCapabilities" :key="cid" closable size="small" color="green" style="margin:1px"
+                    @close="removeCapabilityTag(cid)">{{ capabilityTagName(cid) }}</a-tag>
                 </div>
               </a-form-item>
               <a-button type="primary" size="small" @click="applyNodeProps">应用</a-button>
@@ -142,7 +178,7 @@
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { CloseCircleFilled } from '@ant-design/icons-vue'
+import { CloseCircleFilled, CheckOutlined } from '@ant-design/icons-vue'
 import cytoscape, { type Core } from 'cytoscape'
 import { killChainApi } from '@/api/killchain'
 import { NODE_TYPES, EDGE_TYPES, type KillChainNode, type KillChainEdge } from '@/types/killchain'
@@ -165,8 +201,80 @@ const selectedEdge = ref<any>(null)
 
 // Platform/equipment search
 const selectedPlatforms = ref<string[]>([])
+const platformDropdownOpen = ref(false)
 const indicatorOptions = ref<any[]>([])
 const allIndicators = ref<any[]>([])
+const allCapabilities = ref<any[]>([])
+
+// Capability indicator tree
+const selectedCapabilities = ref<string[]>([])
+const capSelectVal = ref<string>()
+const capDropdownOpen = ref(false)
+const capabilityTreeData = ref<any[]>([])
+
+async function loadCapabilityTree() {
+  try {
+    const res = await fetch('/api/ontology/indicators?entityType=INDICATOR')
+    const data = await res.json()
+    if (data.code === 200) {
+      allCapabilities.value = data.data || []
+      buildCapabilityTree(data.data || [])
+    }
+  } catch { /* ignore */ }
+}
+
+function buildCapabilityTree(indicators: any[]) {
+  const DOMAIN: Record<string,string> = { SurfaceWarfare:'水面作战域', UnderwaterWarfare:'水下作战域', LandWarfare:'陆上作战域', LowAltitudeWarfare:'低空作战域', HighAltitudeWarfare:'高空作战域' }
+  const CAT: Record<string,string> = { Ship:'舰艇', Radar:'雷达系统', WeaponSystem:'武器系统', Submarine:'潜艇', UnderwaterDetection:'水下探测', Tank:'坦克', Artillery:'火炮系统', Helicopter:'直升机', UAV:'无人机', Fighter:'歼击机', Bomber:'轰炸机', AWACS:'预警机' }
+  const dm = new Map<string, Map<string, any[]>>()
+  for (const ind of indicators) {
+    const d = ind.domain || 'other', c = ind.category || 'other'
+    if (!dm.has(d)) dm.set(d, new Map())
+    const cm = dm.get(d)!
+    if (!cm.has(c)) cm.set(c, [])
+    cm.get(c)!.push(ind)
+  }
+  capabilityTreeData.value = Array.from(dm.entries()).map(([d, cm]) => ({
+    title: DOMAIN[d] || d, value: d, key: d, selectable: false, disabled: true,
+    children: Array.from(cm.entries()).map(([c, inds]) => ({
+      title: (CAT[c] || c) + ` (${inds.length})`, value: `${d}/${c}`, key: `${d}/${c}`, selectable: false, disabled: true,
+      children: inds.map(ind => ({
+        title: ind.name + (ind.unit ? ` (${ind.thresholdMin}~${ind.thresholdMax} ${ind.unit})` : ''),
+        value: ind.id, key: ind.id, selectable: true,
+      })),
+    })),
+  }))
+}
+
+function filterCapabilityNode(input: string, node: any) {
+  return node.title?.toLowerCase().includes(input.toLowerCase())
+}
+
+function capabilityTagName(id: string): string {
+  return allCapabilities.value.find((i: any) => i.id === id)?.name || id.slice(0, 8)
+}
+
+let capClicked = false
+
+function onCapSelect(_val: any, node: any) {
+  capClicked = true
+  const id = node.value
+  const idx = selectedCapabilities.value.indexOf(id)
+  if (idx >= 0) selectedCapabilities.value.splice(idx, 1)
+  else selectedCapabilities.value.push(id)
+  capSelectVal.value = undefined
+  markDirty()
+}
+
+function onCapDropdownChange(open: boolean) {
+  if (capClicked) { capClicked = false; nextTick(() => { capDropdownOpen.value = true }); return }
+  capDropdownOpen.value = open
+}
+
+function removeCapabilityTag(id: string) {
+  selectedCapabilities.value = selectedCapabilities.value.filter(c => c !== id)
+  markDirty()
+}
 async function searchIndicators(keyword: string) {
   try {
     const params = new URLSearchParams({ entityType: 'PLATFORM' })
@@ -179,15 +287,41 @@ async function searchIndicators(keyword: string) {
     }
   } catch { indicatorOptions.value = [] }
 }
+
+function platformTagName(id: string): string {
+  return allIndicators.value.find((i: any) => i.id === id)?.name || id.slice(0, 8)
+}
+
+function togglePlatform(id: string) {
+  if (!id) return
+  const idx = selectedPlatforms.value.indexOf(id)
+  if (idx >= 0) {
+    selectedPlatforms.value.splice(idx, 1)
+  } else {
+    selectedPlatforms.value.push(id)
+  }
+  markDirty()
+}
+
+let platformOptionClicked = false
+function onPlatformOptionClick() { platformOptionClicked = true }
+function onPlatformDropdownChange(open: boolean) {
+  if (platformOptionClicked) {
+    platformOptionClicked = false
+    nextTick(() => { platformDropdownOpen.value = true })
+    return
+  }
+  platformDropdownOpen.value = open
+}
+
+function removePlatformTag(id: string) {
+  selectedPlatforms.value = selectedPlatforms.value.filter(p => p !== id)
+  markDirty()
+}
 function getIndicatorName(id: string): string {
   const found = allIndicators.value.find((i: any) => i.id === id)
   return found ? found.name : id.slice(0, 8)
 }
-function removePlatform(id: string) {
-  selectedPlatforms.value = selectedPlatforms.value.filter(p => p !== id)
-  markDirty()
-}
-
 // Edge creation
 const edgeCreationMode = ref(false)
 const edgeCreationSource = ref('')
@@ -257,9 +391,12 @@ function initCytoscape() {
     const n = e.target
     selectedEdge.value = null
     const plat = n.data('platform') || ''
-    selectedNode.value = { id: n.id(), label: n.data('label'), type: n.data('type'), platform: plat }
+    const caps = n.data('capabilities') || ''
+    selectedNode.value = { id: n.id(), label: n.data('label'), type: n.data('type'), platform: plat, capabilities: caps }
     selectedPlatforms.value = plat ? plat.split(',').filter(Boolean) : []
-    searchIndicators('') // preload all indicators
+    selectedCapabilities.value = caps ? caps.split(',').filter(Boolean) : []
+    searchIndicators('')
+    loadCapabilityTree()
     showEdgePanelNearNode(e.target)
   })
 
@@ -342,7 +479,7 @@ function cancelEdgeCreation() {
 function loadModel(model: any) {
   if (!cy) return
   const nodes = (model.nodes || []).map((n: any) => ({
-    data: { id: n.id, label: n.label || n.id, type: n.type, platform: n.platform || '' },
+    data: { id: n.id, label: n.label || n.id, type: n.type, platform: n.platform || '', capabilities: n.capabilities || '' },
     position: n.position || { x: Math.random() * 400, y: Math.random() * 300 },
   }))
   const edges = (model.edges || []).map((e: any) => ({
@@ -373,7 +510,7 @@ async function autoSave() {
   if (!cy) return
   saveStatus.value = 'saving'
   try {
-    const nodes = cy.nodes().map(n => ({ id: n.id(), label: n.data('label'), type: n.data('type'), platform: n.data('platform'), position: n.position() }))
+    const nodes = cy.nodes().map(n => ({ id: n.id(), label: n.data('label'), type: n.data('type'), platform: n.data('platform'), capabilities: n.data('capabilities') || '', position: n.position() }))
     const edges = cy.edges().map(e => ({ id: e.id(), source: e.data('source'), target: e.data('target'), label: e.data('label'), type: e.data('type') }))
     await killChainApi.saveModel(taskId, { modelData: JSON.stringify({ nodes, edges, metadata: { name: taskName.value, version: '1.0', updatedAt: new Date().toISOString() } }), name: taskName.value })
     saveStatus.value = 'saved'; dirty.value = false
@@ -383,12 +520,15 @@ async function autoSave() {
 function applyNodeProps() {
   if (!cy || !selectedNode.value) return
   const platforms = selectedPlatforms.value.join(',')
+  const caps = selectedCapabilities.value.join(',')
   cy.getElementById(selectedNode.value.id).data({
     label: selectedNode.value.label,
     type: selectedNode.value.type,
     platform: platforms,
+    capabilities: caps,
   })
   selectedNode.value.platform = platforms
+  selectedNode.value.capabilities = caps
   markDirty()
 }
 function applyEdgeProps() {
@@ -418,6 +558,8 @@ function handleValidate() {
 function handleFit() { cy?.fit() }
 
 function onKeyDown(e: KeyboardEvent) {
+  const tag = (e.target as HTMLElement)?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNode.value && !edgeCreationMode.value) {
     deleteSelectedNode()
   }
@@ -448,4 +590,10 @@ onUnmounted(() => { clearTimeout(saveTimer); window.removeEventListener('keydown
 .ecp-item { padding: 6px 12px 6px 8px; margin: 2px 4px; font-size: 13px; cursor: pointer; border-left: 3px solid; border-radius: 2px; transition: background .15s; }
 .ecp-item:hover { background: #f0f5ff; }
 .ecp-cancel { border-left-color: #ccc !important; color: #999; }
+.platform-select :deep(.ant-select-selection-item) { background: #e6f7ff; border-color: #91d5ff; border-radius: 4px; }
+.platform-select :deep(.ant-select-selection-item-content) { font-weight: 500; }
+</style>
+
+<style>
+.cap-tree-dropdown { min-width: 340px !important; }
 </style>
