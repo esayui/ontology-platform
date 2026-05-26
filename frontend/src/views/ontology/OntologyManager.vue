@@ -37,8 +37,13 @@
               @select="onTreeSelect"
               @right-click="onRightClick"
             >
-              <template #title="{ title }">
-                <span style="font-size: 13px; user-select: none">{{ title }}</span>
+              <template #title="{ title, nodeType }">
+                <span style="display:inline-flex;align-items:center;gap:4px;user-select:none">
+                  <GlobalOutlined v-if="nodeType === 'domain'" style="color:#1890ff;font-size:14px" />
+                  <FolderOutlined v-else-if="nodeType === 'category'" style="color:#faad14;font-size:13px" />
+                  <ThunderboltOutlined v-else style="color:#52c41a;font-size:12px" />
+                  <span style="font-size:13px">{{ title }}</span>
+                </span>
               </template>
             </a-tree>
             <a-empty v-else-if="!loading" description="暂无数据" />
@@ -294,6 +299,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
 import axios from 'axios'
+import { GlobalOutlined, FolderOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 
 const DOMAIN_NAMES: Record<string, string> = {
   SurfaceWarfare: '水面作战域', UnderwaterWarfare: '水下作战域',
@@ -335,22 +341,19 @@ function buildTree(indicators: any[]): any[] {
       const ck = `${domain}|${category}`
       keys.push(ck)
       catNodes.push({
-        key: ck,
+        key: ck, nodeType: 'category',
         title: `${CATEGORY_NAMES[category] || category} (${inds.length}个)`,
         domain, category,
         children: inds.map((ind) => ({
-          key: ind.id,
-          title: ind.name,
-          isLeaf: true,
-          indicator: ind,
+          key: ind.id, nodeType: 'indicator',
+          title: ind.name, isLeaf: true, indicator: ind,
         })),
       })
     }
     result.push({
-      key: domain,
+      key: domain, nodeType: 'domain',
       title: `${DOMAIN_NAMES[domain] || domain} (${catNodes.length}类)`,
-      domain,
-      children: catNodes,
+      domain, children: catNodes,
     })
   }
   expandedKeys.value = keys

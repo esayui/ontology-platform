@@ -79,6 +79,17 @@ CREATE TABLE IF NOT EXISTS sys_user (
     INDEX idx_username (username)
 ) ENGINE=InnoDB;
 
+-- Kill Chain Task table
+CREATE TABLE IF NOT EXISTS kill_chain_task (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    model_data MEDIUMTEXT,
+    status VARCHAR(32) DEFAULT 'DRAFT',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 -- Insert default admin user (password: admin123, BCrypt encoded)
 INSERT IGNORE INTO sys_user (id, username, password, role, enabled) VALUES
 ('1', 'admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5Eh', 'ADMIN', 1);

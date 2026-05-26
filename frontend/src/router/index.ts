@@ -49,6 +49,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/simulation/SimulationPanel.vue'),
         meta: { title: '仿真数据' },
       },
+      {
+        path: 'killchain',
+        name: 'KillChainList',
+        component: () => import('@/views/killchain/KillChainTaskList.vue'),
+        meta: { title: '杀伤链建模' },
+      },
+      {
+        path: 'killchain/modeler/:id',
+        name: 'KillChainModeler',
+        component: () => import('@/views/killchain/KillChainModeler.vue'),
+        meta: { title: '建模画布' },
+      },
     ],
   },
 ]

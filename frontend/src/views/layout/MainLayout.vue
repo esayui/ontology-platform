@@ -31,6 +31,10 @@
           <DashboardOutlined />
           <span>仿真数据</span>
         </a-menu-item>
+        <a-menu-item key="/killchain">
+          <AimOutlined />
+          <span>杀伤链建模</span>
+        </a-menu-item>
       </a-menu>
     </a-layout-sider>
 
@@ -55,7 +59,7 @@ import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   ShareAltOutlined, ApartmentOutlined, OrderedListOutlined,
-  ExperimentOutlined, DashboardOutlined,
+  ExperimentOutlined, DashboardOutlined, AimOutlined,
 } from '@ant-design/icons-vue'
 
 const router = useRouter()

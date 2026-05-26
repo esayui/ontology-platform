@@ -17,7 +17,16 @@
         v-model:expandedKeys="expandedKeys"
         :selected-keys="selectedKeys"
         @select="onSelect"
-      />
+      >
+        <template #title="{ title, nodeType }">
+          <span style="display:inline-flex;align-items:center;gap:4px">
+            <GlobalOutlined v-if="nodeType === 'domain'" style="color:#1890ff;font-size:14px" />
+            <FolderOutlined v-else-if="nodeType === 'category'" style="color:#faad14;font-size:13px" />
+            <ThunderboltOutlined v-else style="color:#52c41a;font-size:12px" />
+            <span style="font-size:13px">{{ title }}</span>
+          </span>
+        </template>
+      </a-tree>
 
       <a-empty v-else-if="!loading" description="暂无指标数据" />
     </a-spin>
@@ -27,12 +36,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { GlobalOutlined, FolderOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 
 interface TreeNode {
   key: string
   title: string
   children?: TreeNode[]
   indicator?: any
+  nodeType?: string
 }
 
 const treeData = ref<TreeNode[]>([])
@@ -41,18 +52,12 @@ const selectedKeys = ref<string[]>([])
 const loading = ref(false)
 const errorMsg = ref('')
 
-const emit = defineEmits<{
-  (e: 'node-select', node: any): void
-}>()
+const emit = defineEmits<{ (e: 'node-select', node: any): void }>()
 
 const DOMAIN_NAMES: Record<string, string> = {
-  SurfaceWarfare: '水面作战域',
-  UnderwaterWarfare: '水下作战域',
-  LandWarfare: '陆上作战域',
-  LowAltitudeWarfare: '低空作战域',
-  HighAltitudeWarfare: '高空作战域',
+  SurfaceWarfare: '水面作战域', UnderwaterWarfare: '水下作战域', LandWarfare: '陆上作战域',
+  LowAltitudeWarfare: '低空作战域', HighAltitudeWarfare: '高空作战域',
 }
-
 const CATEGORY_NAMES: Record<string, string> = {
   Ship: '舰艇', Radar: '雷达系统', WeaponSystem: '武器系统',
   Submarine: '潜艇', UnderwaterDetection: '水下探测',
@@ -63,91 +68,60 @@ const CATEGORY_NAMES: Record<string, string> = {
 
 function buildTree(indicators: any[]): TreeNode[] {
   const domainMap = new Map<string, Map<string, any[]>>()
-
   for (const ind of indicators) {
-    const domain = ind.domain || '未分类'
-    const category = ind.category || '未分类'
-    if (!domainMap.has(domain)) domainMap.set(domain, new Map())
-    const catMap = domainMap.get(domain)!
-    if (!catMap.has(category)) catMap.set(category, [])
-    catMap.get(category)!.push(ind)
+    const d = ind.domain || '未分类'
+    const c = ind.category || '未分类'
+    if (!domainMap.has(d)) domainMap.set(d, new Map())
+    const cm = domainMap.get(d)!
+    if (!cm.has(c)) cm.set(c, [])
+    cm.get(c)!.push(ind)
   }
 
   const result: TreeNode[] = []
   const allKeys: string[] = []
-
   for (const [domain, catMap] of domainMap) {
-    const domainKey = domain
-    allKeys.push(domainKey)
+    const dk = domain; allKeys.push(dk)
     const catNodes: TreeNode[] = []
-
     for (const [category, inds] of catMap) {
-      const catKey = `${domain}-${category}`
-      allKeys.push(catKey)
+      const ck = `${domain}-${category}`; allKeys.push(ck)
       catNodes.push({
-        key: catKey,
+        key: ck, nodeType: 'category',
         title: `${CATEGORY_NAMES[category] || category} (${inds.length}个)`,
         children: inds.map((ind) => ({
-          key: ind.id,
-          title: `${ind.name}`,
-          indicator: ind,
+          key: ind.id, nodeType: 'indicator',
+          title: ind.name, indicator: ind,
         })),
       })
     }
-
     result.push({
-      key: domainKey,
+      key: dk, nodeType: 'domain',
       title: `${DOMAIN_NAMES[domain] || domain} (${catNodes.length}类)`,
       children: catNodes,
     })
   }
-
   expandedKeys.value = allKeys
   return result
 }
 
 async function loadData() {
   loading.value = true
-  errorMsg.value = ''
   try {
-    const response = await axios.get('/api/ontology/indicators')
-    const data = response.data
-
-    if (data.code === 200 && Array.isArray(data.data)) {
-      console.log('OntologyTree: loaded', data.data.length, 'indicators')
-      treeData.value = buildTree(data.data)
-    } else {
-      errorMsg.value = '数据格式异常: ' + JSON.stringify(data).substring(0, 100)
-    }
-  } catch (e: any) {
-    console.error('OntologyTree load error:', e)
-    errorMsg.value = '加载失败: ' + (e.message || 'unknown')
-  } finally {
-    loading.value = false
-  }
+    const res = await axios.get('/api/ontology/indicators')
+    if (res.data.code === 200) treeData.value = buildTree(res.data.data)
+  } catch (e: any) { errorMsg.value = '加载失败' } finally { loading.value = false }
 }
 
 function expandAll() {
   const keys: string[] = []
-  for (const d of treeData.value) {
-    keys.push(d.key)
-    if (d.children) keys.push(...d.children.map((c) => c.key))
-  }
+  for (const d of treeData.value) { keys.push(d.key); if (d.children) keys.push(...d.children.map(c => c.key)) }
   expandedKeys.value = keys
 }
-
-function collapseAll() {
-  expandedKeys.value = []
-}
+function collapseAll() { expandedKeys.value = [] }
 
 function onSelect(keys: (string | number)[], info: any) {
   selectedKeys.value = keys as string[]
-  if (info.node?.indicator) {
-    emit('node-select', { data: info.node.indicator })
-  }
+  if (info.node?.indicator) emit('node-select', { data: info.node.indicator })
 }
 
-onMounted(() => {
-  loadData()
-})
+onMounted(() => loadData())
 </script>
