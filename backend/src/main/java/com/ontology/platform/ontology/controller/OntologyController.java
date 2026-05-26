@@ -29,8 +29,19 @@ public class OntologyController {
     private final DynamicRuleLoader dynamicRuleLoader;
 
     @GetMapping("/indicators")
-    public Result<List<CapabilityIndicator>> getAllIndicators() {
-        return Result.ok(indicatorMapper.selectList(null));
+    public Result<List<CapabilityIndicator>> getAllIndicators(
+            @RequestParam(required = false) String entityType,
+            @RequestParam(required = false) String keyword) {
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<CapabilityIndicator> wrapper =
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
+        if (entityType != null && !entityType.isBlank()) {
+            wrapper.eq(CapabilityIndicator::getEntityType, entityType);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            wrapper.like(CapabilityIndicator::getName, keyword);
+        }
+        wrapper.orderByAsc(CapabilityIndicator::getDomain, CapabilityIndicator::getCategory);
+        return Result.ok(indicatorMapper.selectList(wrapper));
     }
 
     @GetMapping("/indicators/{id}")

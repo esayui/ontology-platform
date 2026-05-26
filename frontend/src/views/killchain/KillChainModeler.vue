@@ -1,5 +1,5 @@
 <template>
-  <div class="modeler-page">
+  <div class="modeler-page" @contextmenu.prevent>
     <!-- Toolbar -->
     <div class="modeler-toolbar">
       <a-space>
@@ -9,6 +9,7 @@
         <a-divider type="vertical" />
         <a-button size="small" @click="handleValidate">校验模型</a-button>
         <a-button size="small" @click="handleFit">自适应</a-button>
+        <a-tag v-if="edgeCreationMode" color="processing">连线中... (右键取消)</a-tag>
         <a-tag v-if="saveStatus === 'saving'" color="processing">保存中...</a-tag>
         <a-tag v-else-if="saveStatus === 'saved'" color="green">已保存</a-tag>
         <a-tag v-else-if="saveStatus === 'error'" color="red">保存失败</a-tag>
@@ -38,6 +39,34 @@
           <div ref="cyContainer" style="width:100%;height:100%"
             @drop="onDrop" @dragover.prevent
           />
+
+          <!-- Floating delete X button near selected node -->
+          <div
+            v-if="showEdgePanel && edgePanelPos"
+            class="node-delete-btn"
+            :style="{ left: (edgePanelPos.x - 30) + 'px', top: (edgePanelPos.y - 40) + 'px' }"
+            @click.stop="deleteSelectedNode"
+          >
+            <CloseCircleFilled style="color:#ff4d4f;font-size:20px;cursor:pointer" />
+          </div>
+
+          <!-- Floating edge creation panel near selected node -->
+          <div
+            v-if="showEdgePanel && edgePanelPos"
+            class="edge-creation-panel"
+            :style="{ left: edgePanelPos.x + 'px', top: edgePanelPos.y + 'px' }"
+          >
+            <div class="ecp-title">创建连线</div>
+            <div
+              v-for="et in EDGE_TYPES" :key="et.value"
+              class="ecp-item"
+              :style="{ borderLeftColor: et.color }"
+              @click.stop="startEdgeCreation(et)"
+            >
+              {{ et.label }}
+            </div>
+            <div class="ecp-item ecp-cancel" @click.stop="dismissEdgePanel">取消</div>
+          </div>
         </div>
       </a-col>
 
@@ -52,7 +81,32 @@
                   <a-select-option v-for="nt in NODE_TYPES" :key="nt.value" :value="nt.value">{{ nt.label }}</a-select-option>
                 </a-select>
               </a-form-item>
-              <a-form-item label="平台/装备"><a-input v-model:value="selectedNode.platform" @change="markDirty" placeholder="关联的装备名称" /></a-form-item>
+              <a-form-item label="平台/装备">
+                <a-select
+                  v-model:value="selectedPlatforms"
+                  mode="multiple"
+                  placeholder="搜索并选择装备指标..."
+                  :filter-option="false"
+                  show-search
+                  style="width:100%"
+                  @search="searchIndicators"
+                  @change="markDirty"
+                >
+                  <a-select-option v-for="ind in indicatorOptions" :key="ind.id" :value="ind.id" :label="ind.name">
+                    {{ ind.name }} <span style="color:#999;font-size:11px">{{ ind.category }}</span>
+                  </a-select-option>
+                </a-select>
+                <div v-if="selectedPlatforms.length > 0" style="margin-top:4px">
+                  <a-tag
+                    v-for="pid in selectedPlatforms" :key="pid"
+                    closable size="small"
+                    style="margin:1px"
+                    @close="removePlatform(pid)"
+                  >
+                    {{ getIndicatorName(pid) }}
+                  </a-tag>
+                </div>
+              </a-form-item>
               <a-button type="primary" size="small" @click="applyNodeProps">应用</a-button>
             </a-form>
           </div>
@@ -70,11 +124,8 @@
           <a-empty v-else description="点击节点或边" />
         </a-card>
 
-        <!-- Validation -->
         <a-card title="校验结果" size="small" class="prop-card" style="margin-top:8px">
-          <div v-if="validationResults.length === 0 && validated">
-            <a-tag color="green">模型校验通过</a-tag>
-          </div>
+          <div v-if="validationResults.length === 0 && validated"><a-tag color="green">模型校验通过</a-tag></div>
           <div v-else-if="validationResults.length > 0">
             <div v-for="(v, i) in validationResults" :key="i" style="margin-bottom:4px">
               <a-tag :color="v.level === 'error' ? 'red' : 'orange'" size="small">{{ v.message }}</a-tag>
@@ -88,9 +139,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { CloseCircleFilled } from '@ant-design/icons-vue'
 import cytoscape, { type Core } from 'cytoscape'
 import { killChainApi } from '@/api/killchain'
 import { NODE_TYPES, EDGE_TYPES, type KillChainNode, type KillChainEdge } from '@/types/killchain'
@@ -111,9 +163,53 @@ let cy: Core | null = null
 const selectedNode = ref<any>(null)
 const selectedEdge = ref<any>(null)
 
+// Platform/equipment search
+const selectedPlatforms = ref<string[]>([])
+const indicatorOptions = ref<any[]>([])
+const allIndicators = ref<any[]>([])
+async function searchIndicators(keyword: string) {
+  try {
+    const params = new URLSearchParams({ entityType: 'PLATFORM' })
+    if (keyword) params.set('keyword', keyword)
+    const res = await fetch('/api/ontology/indicators?' + params.toString())
+    const data = await res.json()
+    if (data.code === 200) {
+      indicatorOptions.value = (data.data || []).slice(0, 30)
+      if (!keyword) allIndicators.value = data.data || []
+    }
+  } catch { indicatorOptions.value = [] }
+}
+function getIndicatorName(id: string): string {
+  const found = allIndicators.value.find((i: any) => i.id === id)
+  return found ? found.name : id.slice(0, 8)
+}
+function removePlatform(id: string) {
+  selectedPlatforms.value = selectedPlatforms.value.filter(p => p !== id)
+  markDirty()
+}
+
+// Edge creation
+const edgeCreationMode = ref(false)
+const edgeCreationSource = ref('')
+const showEdgePanel = ref(false)
+const edgePanelPos = ref<{ x: number; y: number } | null>(null)
+
 let saveTimer: any = null
 
 function markDirty() { dirty.value = true }
+
+function dismissEdgePanel() {
+  showEdgePanel.value = false
+  edgePanelPos.value = null
+}
+
+function deleteSelectedNode() {
+  if (!cy || !selectedNode.value) return
+  cy.getElementById(selectedNode.value.id).remove()
+  selectedNode.value = null
+  dismissEdgePanel()
+  markDirty()
+}
 
 async function loadTask() {
   try {
@@ -121,10 +217,7 @@ async function loadTask() {
     taskName.value = res.data.name
     initCytoscape()
     if (res.data.modelData) {
-      try {
-        const model = JSON.parse(res.data.modelData)
-        loadModel(model)
-      } catch { /* ignore */ }
+      try { loadModel(JSON.parse(res.data.modelData)) } catch { /* ignore */ }
     }
   } catch { message.error('加载任务失败') }
 }
@@ -144,7 +237,8 @@ function initCytoscape() {
       { selector: 'node[type="strike"]', style: { 'background-color': '#f5222d', shape: 'triangle' } },
       { selector: 'node[type="assessment"]', style: { 'background-color': '#52c41a', shape: 'hexagon' } },
       { selector: 'node:selected', style: { 'border-color': '#1890ff', 'border-width': 3 } },
-      { selector: 'edge', style: { width: 2, 'line-color': '#999', 'target-arrow-color': '#999', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': '10px', 'edge-text-rotation': 'autorotate', 'text-background-opacity': 0.85, 'text-background-color': '#fff', 'text-margin-y': -6 } },
+      { selector: '.edge-creating', style: { 'line-color': '#ff4d4f', width: 2.5, 'line-style': 'dashed', 'target-arrow-color': '#ff4d4f', 'target-arrow-shape': 'triangle' } },
+      { selector: 'edge', style: { width: 2, 'line-color': '#999', 'target-arrow-color': '#999', 'target-arrow-shape': 'triangle', 'curve-style': 'unbundled-bezier', label: 'data(label)', 'font-size': '10px', 'edge-text-rotation': 'autorotate', 'text-background-opacity': 0.85, 'text-background-color': '#fff', 'text-margin-y': -6 } },
       { selector: 'edge[type="communication"]', style: { 'line-color': '#1890ff', 'target-arrow-color': '#1890ff' } },
       { selector: 'edge[type="command"]', style: { 'line-color': '#722ed1', 'target-arrow-color': '#722ed1' } },
       { selector: 'edge[type="support"]', style: { 'line-color': '#52c41a', 'target-arrow-color': '#52c41a', 'line-style': 'dashed' } },
@@ -155,20 +249,94 @@ function initCytoscape() {
   })
 
   cy.on('tap', 'node', (e) => {
+    if (edgeCreationMode.value) {
+      // Finish edge creation
+      finishEdgeCreation(e.target.id())
+      return
+    }
     const n = e.target
     selectedEdge.value = null
-    selectedNode.value = { id: n.id(), label: n.data('label'), type: n.data('type'), platform: n.data('platform') || '' }
+    const plat = n.data('platform') || ''
+    selectedNode.value = { id: n.id(), label: n.data('label'), type: n.data('type'), platform: plat }
+    selectedPlatforms.value = plat ? plat.split(',').filter(Boolean) : []
+    searchIndicators('') // preload all indicators
+    showEdgePanelNearNode(e.target)
   })
+
   cy.on('tap', 'edge', (e) => {
+    dismissEdgePanel()
     const ed = e.target
     selectedNode.value = null
     selectedEdge.value = { id: ed.id(), source: ed.data('source'), target: ed.data('target'), label: ed.data('label'), type: ed.data('type') || 'communication' }
   })
+
   cy.on('tap', (e) => {
-    if (e.target === cy) { selectedNode.value = null; selectedEdge.value = null }
+    if (e.target === cy) {
+      selectedNode.value = null; selectedEdge.value = null
+      dismissEdgePanel()
+    }
   })
-  // Auto-save on node/edge changes
+
+  // Listen for right-click on canvas to cancel edge creation
+  cy.on('cxttap', () => { cancelEdgeCreation() })
+
   cy.on('add remove position dragfree', () => { markDirty() })
+}
+
+function showEdgePanelNearNode(node: any) {
+  if (!canvasWrapper.value) return
+  const pos = node.renderedPosition()
+  const rect = canvasWrapper.value.getBoundingClientRect()
+  showEdgePanel.value = true
+  edgePanelPos.value = {
+    x: pos.x + 60,
+    y: pos.y - 40,
+  }
+  // Ensure panel stays within canvas
+  if (edgePanelPos.value.x + 120 > rect.width) edgePanelPos.value.x = pos.x - 130
+  if (edgePanelPos.value.y < 0) edgePanelPos.value.y = 0
+}
+
+let creatingEdgeType = ''
+
+function startEdgeCreation(et: typeof EDGE_TYPES[number]) {
+  if (!cy || !selectedNode.value) return
+  edgeCreationMode.value = true
+  edgeCreationSource.value = selectedNode.value.id
+  creatingEdgeType = et.value
+  showEdgePanel.value = false
+  // Change cursor on canvas
+  if (cyContainer.value) cyContainer.value.style.cursor = 'crosshair'
+}
+
+function finishEdgeCreation(targetId: string) {
+  if (!cy || !edgeCreationSource.value || targetId === edgeCreationSource.value) {
+    cancelEdgeCreation()
+    return
+  }
+  cy.add({
+    group: 'edges',
+    data: {
+      id: 'edge-' + Date.now(),
+      source: edgeCreationSource.value,
+      target: targetId,
+      label: EDGE_TYPES.find(e => e.value === creatingEdgeType)?.label || '',
+      type: creatingEdgeType,
+    },
+  })
+  edgeCreationMode.value = false
+  edgeCreationSource.value = ''
+  creatingEdgeType = ''
+  if (cyContainer.value) cyContainer.value.style.cursor = ''
+  markDirty()
+}
+
+function cancelEdgeCreation() {
+  edgeCreationMode.value = false
+  edgeCreationSource.value = ''
+  creatingEdgeType = ''
+  if (cyContainer.value) cyContainer.value.style.cursor = ''
+  dismissEdgePanel()
 }
 
 function loadModel(model: any) {
@@ -184,32 +352,22 @@ function loadModel(model: any) {
   cy.layout({ name: 'preset' }).run()
 }
 
-// ---- Drag from palette ----
 let dragNodeType: any = null
-function onDragStart(e: DragEvent, nt: any) {
-  dragNodeType = nt
-  e.dataTransfer!.effectAllowed = 'move'
-}
+function onDragStart(e: DragEvent, nt: any) { dragNodeType = nt; e.dataTransfer!.effectAllowed = 'move' }
 function onDrop(e: DragEvent) {
   if (!cy || !dragNodeType || !canvasWrapper.value) return
   const rect = canvasWrapper.value.getBoundingClientRect()
-  const x = e.clientX - rect.left
-  const y = e.clientY - rect.top + canvasWrapper.value.scrollTop
-  const id = 'node-' + Date.now()
-  cy.add({
-    data: { id, label: dragNodeType.label, type: dragNodeType.value, platform: '' },
-    position: { x, y },
-  })
-  cy.layout({ name: 'cose', fit: false, animate: true, animationDuration: 300 }).run()
+  const sx = e.clientX - rect.left
+  const sy = e.clientY - rect.top
+  // Convert screen coords to model coords (account for pan & zoom)
+  const pan = cy.pan(), zoom = cy.zoom()
+  const x = (sx - pan.x) / zoom
+  const y = (sy - pan.y) / zoom
+  cy.add({ data: { id: 'node-' + Date.now(), label: dragNodeType.label, type: dragNodeType.value, platform: '' }, position: { x, y } })
   markDirty()
 }
 
-// ---- Save ----
-watch(dirty, (val) => {
-  if (!val) return
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => autoSave(), 800)
-})
+watch(dirty, (val) => { if (!val) return; clearTimeout(saveTimer); saveTimer = setTimeout(() => autoSave(), 800) })
 
 async function autoSave() {
   if (!cy) return
@@ -217,78 +375,77 @@ async function autoSave() {
   try {
     const nodes = cy.nodes().map(n => ({ id: n.id(), label: n.data('label'), type: n.data('type'), platform: n.data('platform'), position: n.position() }))
     const edges = cy.edges().map(e => ({ id: e.id(), source: e.data('source'), target: e.data('target'), label: e.data('label'), type: e.data('type') }))
-    const model = { nodes, edges, metadata: { name: taskName.value, version: '1.0', createdAt: '', updatedAt: new Date().toISOString() } }
-    await killChainApi.saveModel(taskId, { modelData: JSON.stringify(model), name: taskName.value })
+    await killChainApi.saveModel(taskId, { modelData: JSON.stringify({ nodes, edges, metadata: { name: taskName.value, version: '1.0', updatedAt: new Date().toISOString() } }), name: taskName.value })
     saveStatus.value = 'saved'; dirty.value = false
   } catch { saveStatus.value = 'error' }
 }
 
-// ---- Property apply ----
 function applyNodeProps() {
   if (!cy || !selectedNode.value) return
-  const n = cy.getElementById(selectedNode.value.id)
-  n.data('label', selectedNode.value.label)
-  n.data('type', selectedNode.value.type)
-  n.data('platform', selectedNode.value.platform)
+  const platforms = selectedPlatforms.value.join(',')
+  cy.getElementById(selectedNode.value.id).data({
+    label: selectedNode.value.label,
+    type: selectedNode.value.type,
+    platform: platforms,
+  })
+  selectedNode.value.platform = platforms
   markDirty()
 }
 function applyEdgeProps() {
   if (!cy || !selectedEdge.value) return
-  const e = cy.getElementById(selectedEdge.value.id)
-  e.data('label', selectedEdge.value.label)
-  e.data('type', selectedEdge.value.type)
+  cy.getElementById(selectedEdge.value.id).data({ label: selectedEdge.value.label, type: selectedEdge.value.type })
   markDirty()
 }
 
-// ---- Validation ----
 function handleValidate() {
   if (!cy) return
   validationResults.value = []
-  const nodes = cy.nodes()
-  const edges = cy.edges()
-
-  // Isolated nodes
+  const nodes = cy.nodes(); const edges = cy.edges()
   const connectedIds = new Set<string>()
   edges.forEach(e => { connectedIds.add(e.data('source')); connectedIds.add(e.data('target')) })
   nodes.forEach(n => { if (!connectedIds.has(n.id())) validationResults.value.push({ level: 'warning', message: `孤立节点: ${n.data('label') || n.id()}` }) })
-
-  // DAG cycle check (simple DFS)
   const adj = new Map<string, string[]>()
-  edges.forEach(e => {
-    const s = e.data('source'), t = e.data('target')
-    if (!adj.has(s)) adj.set(s, [])
-    adj.get(s)!.push(t)
-  })
-  const visited = new Set<string>()
-  const recStack = new Set<string>()
+  edges.forEach(e => { const s = e.data('source'), t = e.data('target'); if (!adj.has(s)) adj.set(s, []); adj.get(s)!.push(t) })
+  const visited = new Set<string>(); const recStack = new Set<string>()
   function hasCycle(id: string): boolean {
     visited.add(id); recStack.add(id)
-    for (const next of (adj.get(id) || [])) {
-      if (!visited.has(next)) { if (hasCycle(next)) return true }
-      else if (recStack.has(next)) return true
-    }
+    for (const next of (adj.get(id) || [])) { if (!visited.has(next)) { if (hasCycle(next)) return true } else if (recStack.has(next)) return true }
     recStack.delete(id); return false
   }
   for (const n of nodes) { if (!visited.has(n.id()) && hasCycle(n.id())) { validationResults.value.push({ level: 'error', message: '检测到循环依赖' }); break } }
-
   validated.value = true
 }
-
 function handleFit() { cy?.fit() }
 
-onMounted(() => loadTask())
-onUnmounted(() => { clearTimeout(saveTimer); cy?.destroy() })
+function onKeyDown(e: KeyboardEvent) {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNode.value && !edgeCreationMode.value) {
+    deleteSelectedNode()
+  }
+}
+
+onMounted(() => { loadTask(); window.addEventListener('keydown', onKeyDown) })
+onUnmounted(() => { clearTimeout(saveTimer); window.removeEventListener('keydown', onKeyDown); cy?.destroy() })
 </script>
 
 <style scoped>
 .modeler-page { display:flex; flex-direction:column; height:calc(100vh - 120px); }
 .modeler-toolbar { padding:6px 12px; background:#fafafa; border-bottom:1px solid #e8e8e8; display:flex; align-items:center; }
-.side-panel { height:100%; overflow:auto; border-left:1px solid #e8e8e8; }
-.canvas-wrapper { width:100%; height:100%; position:relative; }
-.palette { padding:8px; }
+.side-panel { height:100%; overflow:auto; border-left:1px solid #e8e8e8; background:#fafafa; }
+.canvas-wrapper { width:100%; height:100%; position:relative; background:#f5f7fa; }
+.palette { padding:8px; background:#f0f2f5; }
 .palette-title { font-weight:600; margin-bottom:8px; font-size:13px; color:#333; }
 .palette-item { display:flex; align-items:center; gap:6px; padding:6px 8px; margin-bottom:4px; border:1px solid #e8e8e8; border-radius:4px; cursor:grab; font-size:12px; transition:background .2s; }
 .palette-item:hover { background:#f0f5ff; }
 .palette-dot { width:16px; height:16px; display:inline-block; border:1px solid rgba(0,0,0,.1); flex-shrink:0; }
 .prop-card { height:fit-content; }
+
+.edge-creation-panel {
+  position: absolute; z-index: 1000; background: #fff;
+  border: 1px solid #d9d9d9; border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.12); padding: 6px 0; min-width: 100px;
+}
+.ecp-title { padding: 4px 12px; font-size: 12px; color: #999; border-bottom: 1px solid #f0f0f0; margin-bottom: 4px; }
+.ecp-item { padding: 6px 12px 6px 8px; margin: 2px 4px; font-size: 13px; cursor: pointer; border-left: 3px solid; border-radius: 2px; transition: background .15s; }
+.ecp-item:hover { background: #f0f5ff; }
+.ecp-cancel { border-left-color: #ccc !important; color: #999; }
 </style>

@@ -20,10 +20,16 @@
     <a-row :gutter="16" style="height: 100%">
       <!-- Left: Tree -->
       <a-col :span="6">
-        <a-card title="本体分类树" size="small"
+        <a-card size="small"
           :body-style="{ padding: '8px', maxHeight: 'calc(100vh - 160px)', overflow: 'auto' }">
+          <template #title>
+            <a-tabs v-model:activeKey="entityTypeFilter" size="small" @change="loadTree" style="margin:-8px 0 -12px">
+              <a-tab-pane key="INDICATOR" tab="能力指标" />
+              <a-tab-pane key="PLATFORM" tab="平台/装备" />
+            </a-tabs>
+          </template>
           <a-space size="small" style="margin-bottom: 8px" wrap>
-            <a-button size="small" type="primary" @click="showAddDomain">+ 添加域</a-button>
+            <a-button size="small" type="primary" @click="showAddDomain">+ 添加</a-button>
             <a-button size="small" @click="expandAll">展开</a-button>
             <a-button size="small" @click="collapseAll">折叠</a-button>
           </a-space>
@@ -315,6 +321,7 @@ const CATEGORY_NAMES: Record<string, string> = {
 }
 
 // ---- Tree ----
+const entityTypeFilter = ref('INDICATOR')
 const loading = ref(false)
 const treeData = ref<any[]>([])
 const expandedKeys = ref<string[]>([])
@@ -363,7 +370,7 @@ function buildTree(indicators: any[]): any[] {
 async function loadTree() {
   loading.value = true
   try {
-    const res = await axios.get('/api/ontology/indicators')
+    const res = await axios.get('/api/ontology/indicators', { params: { entityType: entityTypeFilter.value } })
     if (res.data.code === 200) {
       treeData.value = buildTree(res.data.data)
     }
@@ -473,6 +480,7 @@ async function handleDialogOk() {
         name: f.indName, domain: f.domainKey, category: f.categoryKey,
         unit: f.indUnit, thresholdMin: f.indMin, thresholdMax: f.indMax,
         description: `${f.indName} (${f.indMin}~${f.indMax} ${f.indUnit})`,
+        entityType: entityTypeFilter.value,
       }
       await axios.post('/api/ontology/indicator', body)
       message.success('指标创建成功')
@@ -486,6 +494,7 @@ async function handleDialogOk() {
         category: f.categoryKey || f.categoryName,
         unit: '', thresholdMin: 0, thresholdMax: 100,
         description: `自动创建的${f.categoryName}分类示例指标`,
+        entityType: entityTypeFilter.value,
       }
       await axios.post('/api/ontology/indicator', body)
       message.success('分类创建成功')
@@ -498,6 +507,7 @@ async function handleDialogOk() {
         category: 'General',
         unit: '', thresholdMin: 0, thresholdMax: 100,
         description: `自动创建的${f.name}域示例指标`,
+        entityType: entityTypeFilter.value,
       }
       await axios.post('/api/ontology/indicator', body)
       message.success('作战域创建成功')

@@ -28,6 +28,8 @@ public class CapabilityIndicator extends BaseEntity {
 
     private String dataType;
 
+    private String entityType;  // INDICATOR or PLATFORM
+
     private Double thresholdMin;
 
     private Double thresholdMax;
