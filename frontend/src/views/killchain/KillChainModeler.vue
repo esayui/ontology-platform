@@ -165,6 +165,13 @@
                   <a-select-option v-for="et in EDGE_TYPES" :key="et.value" :value="et.value">{{ et.label }}</a-select-option>
                 </a-select>
               </a-form-item>
+              <a-form-item label="方向">
+                <a-radio-group v-model:value="selectedEdge.direction" @change="markDirty">
+                  <a-radio value="forward">正向→</a-radio>
+                  <a-radio value="reverse">←反向</a-radio>
+                  <a-radio value="bidirectional">⇄双向</a-radio>
+                </a-radio-group>
+              </a-form-item>
               <a-form-item label="标签"><a-input v-model:value="selectedEdge.label" @change="markDirty" /></a-form-item>
               <a-button type="primary" size="small" @click="applyEdgeProps">应用</a-button>
             </a-form>
@@ -185,7 +192,7 @@
     </a-row>
 
     <!-- Capability Matrix Modal -->
-    <a-modal v-model:open="showMatrixModal" title="能力矩阵设置" width="1000px" :body-style="{ padding: '12px' }" :footer="null" @cancel="cancelMatrix">
+    <a-modal v-model:open="showMatrixModal" :title="(selectedNode?.label || '节点') + '-能力矩阵设置'" width="1000px" :body-style="{ padding: '12px' }" :footer="null" @cancel="cancelMatrix">
       <div v-if="matrixPlatforms.length > 0 && matrixCapabilities.length > 0" class="matrix-scroll" style="max-width:90vw">
         <table class="matrix-table">
           <thead>
@@ -503,7 +510,10 @@ function initCytoscape() {
       { selector: 'node[type="target"]', style: { 'background-color': '#fa541c', shape: 'star' } },
       { selector: 'node:selected', style: { 'border-color': '#1890ff', 'border-width': 3 } },
       { selector: '.edge-creating', style: { 'line-color': '#ff4d4f', width: 2.5, 'line-style': 'dashed', 'target-arrow-color': '#ff4d4f', 'target-arrow-shape': 'triangle' } },
-      { selector: 'edge', style: { width: 2, 'line-color': '#999', 'target-arrow-color': '#999', 'target-arrow-shape': 'triangle', 'curve-style': 'unbundled-bezier', label: 'data(label)', 'font-size': '10px', 'edge-text-rotation': 'autorotate', 'text-background-opacity': 0.85, 'text-background-color': '#fff', 'text-margin-y': -6 } },
+      { selector: 'edge', style: { width: 2, 'line-color': '#999', 'target-arrow-color': '#999', 'target-arrow-shape': 'triangle', 'source-arrow-color': '#999', 'source-arrow-shape': 'none', 'curve-style': 'unbundled-bezier', label: 'data(label)', 'font-size': '10px', 'edge-text-rotation': 'autorotate', 'text-background-opacity': 0.85, 'text-background-color': '#fff', 'text-margin-y': -6 } },
+      { selector: 'edge[direction="forward"]', style: { 'target-arrow-shape': 'triangle', 'source-arrow-shape': 'none' } },
+      { selector: 'edge[direction="reverse"]', style: { 'target-arrow-shape': 'none', 'source-arrow-shape': 'triangle' } },
+      { selector: 'edge[direction="bidirectional"]', style: { 'target-arrow-shape': 'triangle', 'source-arrow-shape': 'triangle' } },
       { selector: 'edge[type="communication"]', style: { 'line-color': '#1890ff', 'target-arrow-color': '#1890ff' } },
       { selector: 'edge[type="command"]', style: { 'line-color': '#722ed1', 'target-arrow-color': '#722ed1' } },
       { selector: 'edge[type="support"]', style: { 'line-color': '#52c41a', 'target-arrow-color': '#52c41a', 'line-style': 'dashed' } },
@@ -538,7 +548,7 @@ function initCytoscape() {
     dismissEdgePanel()
     const ed = e.target
     selectedNode.value = null
-    selectedEdge.value = { id: ed.id(), source: ed.data('source'), target: ed.data('target'), label: ed.data('label'), type: ed.data('type') || 'communication' }
+    selectedEdge.value = { id: ed.id(), source: ed.data('source'), target: ed.data('target'), label: ed.data('label'), type: ed.data('type') || 'communication', direction: ed.data('direction') || 'forward' }
   })
 
   cy.on('tap', (e) => {
@@ -593,6 +603,7 @@ function finishEdgeCreation(targetId: string) {
       target: targetId,
       label: EDGE_TYPES.find(e => e.value === creatingEdgeType)?.label || '',
       type: creatingEdgeType,
+      direction: 'forward',
     },
   })
   edgeCreationMode.value = false
@@ -617,7 +628,7 @@ function loadModel(model: any) {
     position: n.position || { x: Math.random() * 400, y: Math.random() * 300 },
   }))
   const edges = (model.edges || []).map((e: any) => ({
-    data: { id: e.id, source: e.source, target: e.target, label: e.label || '', type: e.type || 'communication' },
+    data: { id: e.id, source: e.source, target: e.target, label: e.label || '', type: e.type || 'communication', direction: e.direction || 'forward' },
   }))
   cy.add([...nodes, ...edges])
   cy.layout({ name: 'preset' }).run()
@@ -645,7 +656,7 @@ async function autoSave() {
   saveStatus.value = 'saving'
   try {
     const nodes = cy.nodes().map(n => ({ id: n.id(), label: n.data('label'), type: n.data('type'), platform: n.data('platform'), capabilities: n.data('capabilities') || '', capabilityMatrix: n.data('capabilityMatrix') || '', position: n.position() }))
-    const edges = cy.edges().map(e => ({ id: e.id(), source: e.data('source'), target: e.data('target'), label: e.data('label'), type: e.data('type') }))
+    const edges = cy.edges().map(e => ({ id: e.id(), source: e.data('source'), target: e.data('target'), label: e.data('label'), type: e.data('type'), direction: e.data('direction') || 'forward' }))
     await killChainApi.saveModel(taskId, { modelData: JSON.stringify({ nodes, edges, metadata: { name: taskName.value, version: '1.0', updatedAt: new Date().toISOString() } }), name: taskName.value })
     saveStatus.value = 'saved'; dirty.value = false
   } catch { saveStatus.value = 'error' }
@@ -668,7 +679,19 @@ function applyNodeProps() {
 }
 function applyEdgeProps() {
   if (!cy || !selectedEdge.value) return
-  cy.getElementById(selectedEdge.value.id).data({ label: selectedEdge.value.label, type: selectedEdge.value.type })
+  cy.getElementById(selectedEdge.value.id).data({
+    label: selectedEdge.value.label,
+    type: selectedEdge.value.type,
+    direction: selectedEdge.value.direction,
+  })
+  // Update arrow styles based on direction
+  const dir = selectedEdge.value.direction
+  cy.getElementById(selectedEdge.value.id).style({
+    'source-arrow-shape': (dir === 'reverse' || dir === 'bidirectional') ? 'triangle' : 'none',
+    'target-arrow-shape': (dir === 'forward' || dir === 'bidirectional') ? 'triangle' : 'none',
+    'source-arrow-color': (dir === 'reverse' || dir === 'bidirectional') ? cy.getElementById(selectedEdge.value.id).style('line-color') : 'transparent',
+    'target-arrow-color': (dir === 'forward' || dir === 'bidirectional') ? cy.getElementById(selectedEdge.value.id).style('line-color') : 'transparent',
+  })
   markDirty()
 }
 
