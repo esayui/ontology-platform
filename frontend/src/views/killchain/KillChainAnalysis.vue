@@ -37,47 +37,27 @@
         </a-card>
       </a-col>
 
-      <!-- Center: Capability Network -->
+      <!-- Center: Capability Relations Table -->
       <a-col :span="10" class="analysis-panel">
-        <a-card title="能力-平台-装备关系网络" size="small" :body-style="{ padding:'4px', height:'calc(100vh-180px)' }">
-          <div class="layered-network">
-            <!-- Capability layer -->
-            <div class="layer capability-layer">
-              <div class="layer-label">能力层</div>
-              <div class="layer-nodes">
-                <div v-for="n in capNodes" :key="n.id"
-                  class="net-node" :class="{ satisfied: n.satisfied, active: activeNode === n.id }"
-                  :style="{ background: n.satisfied ? '#52c41a' : '#ff4d4f' }"
-                  @click="clickNetNode(n)">
-                  {{ n.name }}
-                </div>
-              </div>
-            </div>
-            <!-- Platform layer -->
-            <div class="layer platform-layer">
-              <div class="layer-label">平台层</div>
-              <div class="layer-nodes">
-                <div v-for="n in platNodes" :key="n.id"
-                  class="net-node" :class="{ satisfied: n.satisfied, active: activeNode === n.id }"
-                  :style="{ background: n.satisfied ? '#1890ff' : '#ff4d4f' }"
-                  @click="clickNetNode(n)">
-                  {{ n.name }}
-                </div>
-              </div>
-            </div>
-            <!-- Equipment layer -->
-            <div class="layer equipment-layer">
-              <div class="layer-label">装备层</div>
-              <div class="layer-nodes">
-                <div v-for="n in equipNodes" :key="n.id"
-                  class="net-node" :class="{ satisfied: n.satisfied, active: activeNode === n.id }"
-                  :style="{ background: n.satisfied ? '#722ed1' : '#ff4d4f' }"
-                  @click="clickNetNode(n)">
-                  {{ n.name }}
-                </div>
-              </div>
-            </div>
-          </div>
+        <a-card title="能力关系表" size="small" :body-style="{ padding:'8px', height:'calc(100vh-180px)', overflow:'auto' }">
+          <a-table
+            v-if="capRelations.length > 0"
+            :columns="capRelColumns"
+            :data-source="capRelations"
+            :pagination="false"
+            size="small"
+            row-key="id"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'srcNode'">
+                <span>{{ nodeIcon(record.srcType) }} {{ record.srcNode }}</span>
+              </template>
+              <template v-if="column.key === 'tgtNode'">
+                <span>{{ nodeIcon(record.tgtType) }} {{ record.tgtNode }}</span>
+              </template>
+            </template>
+          </a-table>
+          <a-empty v-else description="点击左侧杀伤链查看能力关系" />
         </a-card>
       </a-col>
 
@@ -130,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { killChainApi } from '@/api/killchain'
@@ -145,6 +125,8 @@ const activeAnalysis = ref<any>(null)
 
 // Mock data
 const chains = ref<any[]>([])
+const ontologyRels = ref<any[]>([])
+const allOntologyIndicators = ref<any[]>([])
 const netNodes = ref<any[]>([])
 const riskCount = computed(() => netNodes.value.filter(n => !n.satisfied && n.level === 'capability').length)
 const gapCount = computed(() => {
@@ -157,9 +139,14 @@ const overallRate = computed(() => {
   return Math.round((satisfied / netNodes.value.length) * 100)
 })
 
-const capNodes = computed(() => netNodes.value.filter(n => n.level === 'capability'))
-const platNodes = computed(() => netNodes.value.filter(n => n.level === 'platform'))
-const equipNodes = computed(() => netNodes.value.filter(n => n.level === 'equipment'))
+const capRelations = ref<any[]>([])
+const capRelColumns = [
+  { title: '所属节点(源)', key: 'srcNode', width: 110 },
+  { title: '能力指标(源)', dataIndex: 'srcCap', width: 100 },
+  { title: '关系', dataIndex: 'relation', width: 140 },
+  { title: '所属节点(目标)', key: 'tgtNode', width: 110 },
+  { title: '能力指标(目标)', dataIndex: 'tgtCap', width: 100 },
+]
 
 const NODE_ICONS: Record<string, string> = {
   reconnaissance: '👁', detection: '📡', command: '🎯', control: '🕹',
@@ -168,60 +155,114 @@ const NODE_ICONS: Record<string, string> = {
 
 function nodeIcon(type: string) { return NODE_ICONS[type] || '●' }
 
-function generateMockData() {
-  // Kill chains
-  chains.value = [
-    {
-      id: 'chain-1', satisfactionRate: 78, riskLevel: 'medium',
-      nodes: [
-        { id: 'cn1', name: '侦察卫星', type: 'reconnaissance', satisfied: true, risk: false, gapIndicators: [] },
-        { id: 'cn2', name: '探测雷达', type: 'detection', satisfied: true, risk: false, gapIndicators: [] },
-        { id: 'cn3', name: '指挥中心', type: 'command', satisfied: true, risk: true, gapIndicators: ['resp-time'] },
-        { id: 'cn4', name: '通信中继', type: 'communication', satisfied: false, risk: true, gapIndicators: ['bandwidth', 'latency'] },
-        { id: 'cn5', name: '打击单元', type: 'strike', satisfied: true, risk: false, gapIndicators: [] },
-        { id: 'cn6', name: '敌方目标', type: 'target', satisfied: false, risk: false, gapIndicators: [] },
-      ],
-      edges: [
-        { id: 'ce1', source: 'cn1', target: 'cn2', type: 'detection' },
-        { id: 'ce2', source: 'cn2', target: 'cn3', type: 'communication' },
-        { id: 'ce3', source: 'cn3', target: 'cn4', type: 'command' },
-        { id: 'ce4', source: 'cn4', target: 'cn5', type: 'communication' },
-        { id: 'ce5', source: 'cn5', target: 'cn6', type: 'strike' },
-      ],
-    },
-    {
-      id: 'chain-2', satisfactionRate: 45, riskLevel: 'high',
-      nodes: [
-        { id: 'cn7', name: '无人机侦察', type: 'reconnaissance', satisfied: true, risk: false, gapIndicators: [] },
-        { id: 'cn8', name: '地面雷达', type: 'detection', satisfied: false, risk: true, gapIndicators: ['range', 'resolution'] },
-        { id: 'cn9', name: '火控系统', type: 'control', satisfied: false, risk: true, gapIndicators: ['accuracy'] },
-        { id: 'cn10', name: '导弹发射车', type: 'strike', satisfied: true, risk: false, gapIndicators: [] },
-        { id: 'cn11', name: '敌方舰艇', type: 'target', satisfied: false, risk: false, gapIndicators: [] },
-      ],
-      edges: [
-        { id: 'ce6', source: 'cn7', target: 'cn8', type: 'detection' },
-        { id: 'ce7', source: 'cn8', target: 'cn9', type: 'command' },
-        { id: 'ce8', source: 'cn9', target: 'cn10', type: 'command' },
-        { id: 'ce9', source: 'cn10', target: 'cn11', type: 'strike' },
-      ],
-    },
-  ]
+function findKillChains(modelNodes: any[], modelEdges: any[]) {
+  // Build adjacency list respecting edge direction:
+  // forward: data source -> data target
+  // reverse: data target -> data source
+  // bidirectional: both directions
+  const adj = new Map<string, { target: string; edge: any }[]>()
+  function addEdge(src: string, tgt: string, edge: any) {
+    if (!adj.has(src)) adj.set(src, [])
+    adj.get(src)!.push({ target: tgt, edge })
+  }
+  for (const e of modelEdges) {
+    const ds: string = e.source || e.data?.source
+    const dt: string = e.target || e.data?.target
+    const dir: string = e.direction || e.data?.direction || 'forward'
+    if (!ds || !dt) continue
+    if (dir === 'forward') {
+      addEdge(ds, dt, e)
+    } else if (dir === 'reverse') {
+      addEdge(dt, ds, e)
+    } else if (dir === 'bidirectional') {
+      addEdge(ds, dt, e)
+      addEdge(dt, ds, e)
+    }
+  }
 
-  // Network nodes (3 layers)
+  // Build node map
+  const nodeMap = new Map(modelNodes.map(n => {
+    const id: string = n.id || n.data?.id
+    const type: string = n.type || n.data?.type || ''
+    const label: string = n.label || n.data?.label || id
+    return [id, { id, name: label, type }]
+  }))
+
+  // Find all target-type nodes
+  const targetNodes = [...nodeMap.values()].filter(n => n.type === 'target')
+  if (targetNodes.length === 0) return []
+
+  // For each target, find all closed-loop paths: target -> ... -> same target
+  // Each node appears at most once per path (excluding the target which appears twice: start and end)
+  const chains: any[] = []
+  let chainIdx = 0
+
+  for (const targetNode of targetNodes) {
+    const targetId = targetNode.id
+    // DFS: start from target's neighbors (first step away)
+    const startEdges = adj.get(targetId) || []
+    const stack: { nodeId: string; path: string[]; edges: any[] }[] = []
+
+    for (const se of startEdges) {
+      stack.push({
+        nodeId: se.target,
+        path: [targetId, se.target],
+        edges: [se.edge],
+      })
+    }
+
+    while (stack.length > 0) {
+      const { nodeId, path, edges } = stack.pop()!
+      // Check if we've returned to the starting target (closed loop)
+      if (nodeId === targetId && path.length > 2) {
+        chainIdx++
+        const chainNodes = path.slice(0, -1).map((id: string) => {
+          const raw = modelNodes.find((mn: any) => (mn.id || mn.data?.id) === id)
+          const capabilities = raw?.capabilities || raw?.data?.capabilities || ''
+          const n = nodeMap.get(id)!
+          const risky = n.type === 'communication' || n.type === 'control'
+          return { id: n.id, name: n.name, type: n.type, satisfied: !risky, risk: risky, capabilities, gapIndicators: risky ? [n.name + '-指标'] : [] }
+        })
+        const satisfied = chainNodes.filter(n => n.satisfied).length
+        chains.push({
+          id: 'chain-' + chainIdx,
+          satisfactionRate: chainNodes.length > 0 ? Math.round((satisfied / chainNodes.length) * 100) : 0,
+          riskLevel: chainNodes.some(n => n.risk) ? 'medium' : 'low',
+          nodes: chainNodes,
+          edges: edges.map((e, i) => ({
+            id: e.id || (e.data?.id) || 'ce' + i,
+            source: e.source || e.data?.source,
+            target: e.target || e.data?.target,
+            type: e.type || e.data?.type || 'command',
+          })),
+        })
+        continue
+      }
+      // Continue exploring neighbors (avoid revisiting nodes within this path)
+      const neighbors = adj.get(nodeId) || []
+      for (const { target, edge } of neighbors) {
+        if (target === targetId || !path.includes(target)) {
+          stack.push({ nodeId: target, path: [...path, target], edges: [...edges, edge] })
+        }
+      }
+    }
+  }
+  return chains
+}
+
+function generateMockData() {
   netNodes.value = [
     { id: 'nn1', name: '探测距离', level: 'capability', category: '雷达', satisfied: true, score: 85, linkedIds: ['nn8','nn9'] },
     { id: 'nn2', name: '响应时间', level: 'capability', category: '指挥', satisfied: false, score: 45, linkedIds: ['nn10'] },
     { id: 'nn3', name: '通信带宽', level: 'capability', category: '通信', satisfied: false, score: 30, linkedIds: ['nn11'] },
     { id: 'nn4', name: '命中精度', level: 'capability', category: '武器', satisfied: true, score: 90, linkedIds: ['nn12'] },
     { id: 'nn5', name: '续航能力', level: 'capability', category: '无人机', satisfied: true, score: 75, linkedIds: ['nn13'] },
-
     { id: 'nn8', name: '346A雷达', level: 'platform', category: '雷达', satisfied: true, score: 85, linkedIds: ['nn16'] },
     { id: 'nn9', name: '382雷达', level: 'platform', category: '雷达', satisfied: false, score: 60, linkedIds: ['nn17'] },
     { id: 'nn10', name: '指挥系统', level: 'platform', category: '指挥', satisfied: false, score: 40, linkedIds: [] },
     { id: 'nn11', name: '通信链路', level: 'platform', category: '通信', satisfied: false, score: 35, linkedIds: ['nn18'] },
     { id: 'nn12', name: '火控系统', level: 'platform', category: '武器', satisfied: true, score: 88, linkedIds: ['nn19'] },
     { id: 'nn13', name: '无侦-8', level: 'platform', category: '无人机', satisfied: true, score: 80, linkedIds: [] },
-
     { id: 'nn16', name: '055驱逐舰', level: 'equipment', category: '舰艇', satisfied: true, score: 90, linkedIds: [] },
     { id: 'nn17', name: '052D驱逐舰', level: 'equipment', category: '舰艇', satisfied: false, score: 55, linkedIds: [] },
     { id: 'nn18', name: '通信中继站', level: 'equipment', category: '通信', satisfied: false, score: 30, linkedIds: [] },
@@ -229,10 +270,46 @@ function generateMockData() {
   ]
 }
 
-function selectChain(ci: number) {
+async function selectChain(ci: number) {
   activeChain.value = activeChain.value === ci ? null : ci
   const chain = chains.value[ci]
   activeNode.value = ''
+  // Build capability relations from ontology relationships
+  capRelations.value = []
+  if (chain && chain.edges && ontologyRels.value.length > 0) {
+    // Map indicator ID -> name for quick lookup
+    const indNameMap = new Map<string, string>()
+    for (const ind of allOntologyIndicators.value) {
+      indNameMap.set(ind.id, ind.name)
+    }
+    let relIdx = 0
+    for (const edge of chain.edges) {
+      const srcNode = chain.nodes.find((n: any) => n.id === edge.source)
+      const tgtNode = chain.nodes.find((n: any) => n.id === edge.target)
+      if (!srcNode || !tgtNode) continue
+      const srcCaps: string[] = (srcNode.capabilities || '').split(',').filter(Boolean)
+      const tgtCaps: string[] = (tgtNode.capabilities || '').split(',').filter(Boolean)
+      if (srcCaps.length === 0 || tgtCaps.length === 0) continue
+      // Cross-reference with ontology relationships (bidirectional match)
+      for (const sc of srcCaps) {
+        for (const tc of tgtCaps) {
+          const match = ontologyRels.value.find((r: any) =>
+            (r.sourceIndicatorId === sc && r.targetIndicatorId === tc) ||
+            (r.sourceIndicatorId === tc && r.targetIndicatorId === sc))
+          if (match) {
+            capRelations.value.push({
+              id: 'rel-' + (relIdx++),
+              srcNode: srcNode.name, srcType: srcNode.type,
+              srcCap: indNameMap.get(sc) || sc.slice(0, 8),
+              relation: (match.relationshipType || '') + (match.droolsRuleName ? ' / ' + match.droolsRuleName : ''),
+              tgtNode: tgtNode.name, tgtType: tgtNode.type,
+              tgtCap: indNameMap.get(tc) || tc.slice(0, 8),
+            })
+          }
+        }
+      }
+    }
+  }
   activeAnalysis.value = {
     indicators: [
       { id: 'i1', name: '探测距离', satisfied: true, score: 85 },
@@ -290,13 +367,34 @@ function getMatrixColor(score: number): string {
   return '#f8d7da'
 }
 
-onMounted(async () => {
+async function loadAnalysis() {
+  chains.value = []
+  ontologyRels.value = []
+  allOntologyIndicators.value = []
+  activeNode.value = ''
+  activeChain.value = null
+  activeAnalysis.value = null
   try {
-    const res = await killChainApi.getTask(taskId)
-    taskName.value = res.data.name
+    const [taskRes, relsRes, indsRes] = await Promise.all([
+      killChainApi.getTask(route.params.id as string),
+      fetch('/api/ontology/relationships').then(r => r.json()),
+      fetch('/api/ontology/indicators').then(r => r.json()),
+    ])
+    taskName.value = taskRes.data.name
+    if (relsRes.code === 200) ontologyRels.value = relsRes.data || []
+    if (indsRes.code === 200) allOntologyIndicators.value = indsRes.data || []
+
+    if (taskRes.data.modelData) {
+      try {
+        const model = JSON.parse(taskRes.data.modelData)
+        chains.value = findKillChains(model.nodes || [], model.edges || [])
+      } catch { /* ignore */ }
+    }
   } catch { message.error('加载任务失败') }
-  generateMockData()
-})
+}
+
+onMounted(loadAnalysis)
+watch(() => route.params.id, loadAnalysis)
 </script>
 
 <style scoped>

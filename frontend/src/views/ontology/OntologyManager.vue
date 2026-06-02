@@ -26,6 +26,7 @@
             <a-tabs v-model:activeKey="entityTypeFilter" size="small" @change="loadTree" style="margin:-8px 0 -12px">
               <a-tab-pane key="INDICATOR" tab="能力指标" />
               <a-tab-pane key="PLATFORM" tab="平台/装备" />
+              <a-tab-pane key="EQUIP_INDICATOR" tab="装备指标体系" />
             </a-tabs>
           </template>
           <a-space size="small" style="margin-bottom: 8px" wrap>
@@ -356,25 +357,85 @@ function buildTree(indicators: any[]): any[] {
   const result: any[] = []
   for (const [domain, catMap] of domainMap) {
     keys.push(domain)
-    const catNodes: any[] = []
+    const rootNode = { key: domain, nodeType: 'domain', title: `${DOMAIN_NAMES[domain] || domain}`, domain, children: [] as any[] }
+    // Group categories: top-level vs hierarchical ("预警机/探测能力")
+    const topCats: Map<string, any[]> = new Map()
+    const treeCats: Map<string, Map<string, any[]>> = new Map()
     for (const [category, inds] of catMap) {
-      const ck = `${domain}|${category}`
+      const parts = category.split('/')
+      if (parts.length === 1) {
+        topCats.set(category, inds)
+      } else {
+        const root = parts[0]
+        const subPath = parts.slice(1).join('/')
+        if (!treeCats.has(root)) treeCats.set(root, new Map())
+        treeCats.get(root)!.set(subPath, inds)
+      }
+    }
+    let catCount = 0
+    // Add top-level categories
+    for (const [cat, inds] of topCats) {
+      const ck = `${domain}|${cat}`
       keys.push(ck)
-      catNodes.push({
+      catCount++
+      rootNode.children.push({
         key: ck, nodeType: 'category',
-        title: `${CATEGORY_NAMES[category] || category} (${inds.length}个)`,
-        domain, category,
-        children: inds.map((ind) => ({
-          key: ind.id, nodeType: 'indicator',
-          title: ind.name, isLeaf: true, indicator: ind,
+        title: `${CATEGORY_NAMES[cat] || cat} (${inds.length}个)`,
+        domain, category: cat,
+        children: inds.map(ind => ({
+          key: ind.id, nodeType: 'indicator', title: ind.name, isLeaf: true, indicator: ind,
         })),
       })
     }
-    result.push({
-      key: domain, nodeType: 'domain',
-      title: `${DOMAIN_NAMES[domain] || domain} (${catNodes.length}类)`,
-      domain, children: catNodes,
-    })
+    // Add hierarchical categories
+    for (const [rootCat, subMap] of treeCats) {
+      const rcKey = `${domain}|${rootCat}`
+      keys.push(rcKey)
+      catCount++
+      const rcNode: any = {
+        key: rcKey, nodeType: 'category',
+        title: `${CATEGORY_NAMES[rootCat] || rootCat}`,
+        domain, category: rootCat, children: [],
+      }
+      for (const [subPath, inds] of subMap) {
+        const subParts = subPath.split('/')
+        let parent = rcNode
+        let currentPath = rootCat
+        for (let i = 0; i < subParts.length; i++) {
+          currentPath += '/' + subParts[i]
+          const isLast = i === subParts.length - 1
+          const sk = `${domain}|${currentPath}`
+          keys.push(sk)
+          const existing = parent.children?.find((c: any) => c.key === sk)
+          if (existing) {
+            parent = existing
+            if (isLast) {
+              parent.children.push(...inds.map(ind => ({
+                key: ind.id, nodeType: 'indicator', title: ind.name, isLeaf: true, indicator: ind,
+              })))
+              parent.title += ` (${parent.children.filter((c: any) => c.isLeaf).length}个)`
+            }
+          } else {
+            const newNode: any = {
+              key: sk, nodeType: 'category',
+              title: subParts[i],
+              domain, category: currentPath, children: [],
+            }
+            if (isLast) {
+              newNode.children = inds.map(ind => ({
+                key: ind.id, nodeType: 'indicator', title: ind.name, isLeaf: true, indicator: ind,
+              }))
+              newNode.title += ` (${newNode.children.length}个)`
+            }
+            parent.children.push(newNode)
+            parent = newNode
+          }
+        }
+      }
+      rootNode.children.push(rcNode)
+    }
+    rootNode.title += ` (${catCount}类)`
+    result.push(rootNode)
   }
   expandedKeys.value = keys
   return result
